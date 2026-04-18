@@ -133,6 +133,7 @@ The two `level1_matched_*` files are the current canonical Level 1 experiment co
 - `scripts/bootstrap_kernelbench.py`
 - `scripts/eval_from_generations.py`
 - `scripts/benchmark_eval_analysis.py`
+- `scripts/validate_evidence_bundle.py`
 - `scripts/sync_to_wsl.py`
 - `scripts/run_level_paired.py`
 - `scripts/run_level1_paired.py`
@@ -151,7 +152,22 @@ uv run python scripts\eval_from_generations.py --run-name codex-ptx --backend pt
 Useful flags:
 
 - `--per-problem-timeout-seconds 300` sets the per-problem wall-clock limit.
+- `--torch-compile-baseline` also measures the reference model with default `torch.compile` and records `ref_runtime_compile_default_ms` plus `speedup_vs_compile_default`, while keeping compile time out of the timed runtime window.
 - `--in-process` disables subprocess isolation and uses the legacy in-process path.
+
+## Paper-readiness gate
+
+For a claim-safe KernelBench-style paper bundle, the expected gate is now:
+
+1. Run paired generation and official evaluation.
+2. Produce paired analysis JSON plus Markdown.
+3. Validate the artifact bundle before making claims:
+
+```powershell
+uv run python scripts\validate_evidence_bundle.py --run-name pilot-gpt54 --level 1 --track oneshot
+```
+
+The validator checks the paper run manifest, backend run manifests, per-problem result JSON files, timing summaries, and paired analysis outputs. It also verifies the standardized evidence fields carried in each result record, including submission hash, failure category, evaluation seeds/trials, hardware/software provenance, and the eager-vs-compile baseline aliases.
 
 ## Vendored KernelBench snapshot
 

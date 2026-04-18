@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 import statistics
 
@@ -86,6 +86,7 @@ class BackendRunSummary:
     geomean_speedup_vs_torch_correct_only: float
     geomean_speedup_vs_torch_correct_and_faster_only: float
     failure_breakdown: dict[str, int]
+    fast_p_vs_compile_default: dict[float, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,10 @@ def compute_backend_summary(
     correct = [bool(row["correctness"]) for row in rows]
     ref_ms = [float(row["ref_runtime_ms"]) for row in rows]
     candidate_ms = [float(row["runtime_ms"]) for row in rows]
+    compile_default_ref_ms = [
+        float(row.get("ref_runtime_compile_default_ms", -1.0) or -1.0)
+        for row in rows
+    ]
     failure_breakdown = {stage: 0 for stage in FAILURE_STAGES}
     for row in rows:
         failure_breakdown[classify_result_stage(row)] += 1
@@ -145,6 +150,10 @@ def compute_backend_summary(
         correct_tasks=correct_tasks,
         correctness_rate=(correct_tasks / total) if total else 0.0,
         fast_p_vs_torch={threshold: compute_fast_p(correct, ref_ms, candidate_ms, threshold) for threshold in thresholds},
+        fast_p_vs_compile_default={
+            threshold: compute_fast_p(correct, compile_default_ref_ms, candidate_ms, threshold)
+            for threshold in thresholds
+        },
         geomean_speedup_vs_torch_correct_only=geometric_mean_speed_ratio_correct_only(correct, ref_ms, candidate_ms, total),
         geomean_speedup_vs_torch_correct_and_faster_only=geometric_mean_speed_ratio_correct_and_faster_only(
             correct,

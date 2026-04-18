@@ -22,6 +22,7 @@ from .config import (
     DEFAULT_DEV_EVAL_PROFILE_TRIALS,
     DEFAULT_DEV_EVAL_PERF_TRIALS,
     DEFAULT_DEV_EVAL_SEED,
+    DEFAULT_DEV_EVAL_TIMEOUT_SECONDS,
     DEFAULT_GENERATION_TIMEOUT_SECONDS,
     DEFAULT_LEVELS,
     DEFAULT_NUM_CORRECT_TRIALS,
@@ -46,6 +47,7 @@ PROTOCOL_SIGNATURE_KEYS = (
     "one_shot",
     "num_correct_trials",
     "num_perf_trials",
+    "torch_compile_baseline",
     "generation_timeout_seconds",
     "official_eval_seed",
     "max_steps",
@@ -54,6 +56,7 @@ PROTOCOL_SIGNATURE_KEYS = (
     "dev_eval_seed",
     "dev_eval_correct_trials",
     "dev_eval_perf_trials",
+    "dev_eval_timeout_seconds",
     "dev_eval_profile_enabled",
     "dev_eval_profile_tool",
     "dev_eval_profile_trials",
@@ -71,6 +74,7 @@ class PaperRunProtocol:
     one_shot: bool = True
     num_correct_trials: int = DEFAULT_NUM_CORRECT_TRIALS
     num_perf_trials: int = DEFAULT_NUM_PERF_TRIALS
+    torch_compile_baseline: bool = False
     generation_timeout_seconds: int = DEFAULT_GENERATION_TIMEOUT_SECONDS
     official_eval_seed: int = DEFAULT_OFFICIAL_EVAL_SEED
     max_steps: int = 1
@@ -79,6 +83,7 @@ class PaperRunProtocol:
     dev_eval_seed: int | None = None
     dev_eval_correct_trials: int | None = None
     dev_eval_perf_trials: int | None = None
+    dev_eval_timeout_seconds: int | None = None
     dev_eval_profile_enabled: bool = DEFAULT_DEV_EVAL_PROFILE_ENABLED
     dev_eval_profile_tool: str | None = None
     dev_eval_profile_trials: int | None = None
@@ -105,6 +110,7 @@ def default_paper_protocol(level: int = 1, *, track: str = DEFAULT_TRACK) -> Pap
         dev_eval_seed=DEFAULT_DEV_EVAL_SEED if is_agentic else None,
         dev_eval_correct_trials=DEFAULT_DEV_EVAL_CORRECT_TRIALS if is_agentic else None,
         dev_eval_perf_trials=DEFAULT_DEV_EVAL_PERF_TRIALS if is_agentic else None,
+        dev_eval_timeout_seconds=DEFAULT_DEV_EVAL_TIMEOUT_SECONDS if is_agentic else None,
         dev_eval_profile_enabled=DEFAULT_DEV_EVAL_PROFILE_ENABLED if is_agentic else False,
         dev_eval_profile_tool=DEFAULT_DEV_EVAL_PROFILE_TOOL if is_agentic else None,
         dev_eval_profile_trials=DEFAULT_DEV_EVAL_PROFILE_TRIALS if is_agentic else None,
@@ -165,6 +171,26 @@ def _run_command(command: list[str]) -> str | None:
     return output or None
 
 
+def _git_commit(repo_root: Path) -> str | None:
+    process = subprocess.run(
+        [
+            "git",
+            "-c",
+            f"safe.directory={repo_root}",
+            "-C",
+            str(repo_root),
+            "rev-parse",
+            "HEAD",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        return None
+    return process.stdout.strip() or None
+
+
 def _parse_cuda_release(raw_output: str | None) -> str | None:
     if not raw_output:
         return None
@@ -219,8 +245,10 @@ def _gpu_environment() -> dict[str, Any]:
 
 def detect_runtime_environment() -> dict[str, Any]:
     snapshot = ensure_vendor_snapshot()
+    repo_commit = _git_commit(REPO_ROOT)
     environment = {
         "repo_root": str(REPO_ROOT),
+        "repo_commit": repo_commit,
         "hostname": socket.gethostname(),
         "platform_system": platform.system(),
         "platform_release": platform.release(),
@@ -231,7 +259,10 @@ def detect_runtime_environment() -> dict[str, Any]:
         "wsl_distro": os.environ.get("WSL_DISTRO_NAME"),
         "cwd": str(Path.cwd()),
         "vendor_snapshot_commit": snapshot.commit,
+        "kernelbench_commit": snapshot.commit,
     }
     environment.update(_gpu_environment())
     environment.update(_torch_environment())
+    environment["cuda_version"] = environment.get("torch_cuda_version") or environment.get("cuda_toolkit_release")
+    environment["ptxas_version"] = environment.get("ptxas_release")
     return environment

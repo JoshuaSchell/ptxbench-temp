@@ -7,6 +7,7 @@ import traceback
 
 from .eval import evaluate_submission
 from .isolated_eval import annotate_eval_payload, classify_failure_category, deserialize_problem, _build_failure_payload
+from .profiler import ProfileRequest
 
 
 def _exception_looks_like_oom(exc: Exception) -> bool:
@@ -27,6 +28,15 @@ def main(argv: list[str] | None = None) -> int:
     submission_path = Path(request["submission_path"])
 
     try:
+        raw_profile_request = request.get("profile_request")
+        profile_request = None
+        if isinstance(raw_profile_request, dict):
+            profile_request = ProfileRequest(
+                enabled=bool(raw_profile_request.get("enabled", False)),
+                tool=str(raw_profile_request.get("tool", "ncu")),
+                metrics=tuple(str(metric) for metric in raw_profile_request.get("metrics", [])),
+                num_trials=int(raw_profile_request.get("num_trials", 1)),
+            )
         payload = evaluate_submission(
             problem=problem,
             submission_path=submission_path,
@@ -39,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
             num_warmup=int(request["num_warmup"]),
             run_static_checks=bool(request["run_static_checks"]),
             seed=int(request["seed"]),
+            measure_compile_default_baseline=bool(request.get("measure_compile_default_baseline", False)),
+            profile_request=profile_request,
         ).to_dict()
     except Exception as exc:
         category = "oom" if _exception_looks_like_oom(exc) else "evaluator_crash"

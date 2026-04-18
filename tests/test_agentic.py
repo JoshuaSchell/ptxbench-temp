@@ -1,16 +1,29 @@
 from pathlib import Path
 import json
 import shutil
+import tempfile
 from unittest.mock import patch
 
 import pytest
 
-from ptxbench.agentic import AgenticEpisodeBudget, format_agentic_observation, run_agentic_episode
+from ptxbench.agentic import (
+    AgenticEpisodeBudget,
+    format_agentic_observation,
+    run_agentic_episode,
+    run_agentic_validation_pass,
+)
 from ptxbench.dataset import construct_dataset
 from ptxbench.eval import evaluate_submission
+from ptxbench.static_checker import StaticCheckResult
 from ptxbench.providers import ProviderResponse
 
 torch = pytest.importorskip("torch")
+
+
+def _workspace_tempdir() -> tempfile.TemporaryDirectory[str]:
+    base = Path(".pytest_tmp").resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    return tempfile.TemporaryDirectory(dir=base)
 
 
 def test_agentic_episode_records_budget_and_step_metadata() -> None:
@@ -135,6 +148,112 @@ def test_format_agentic_observation_includes_ptx_assembly_feedback() -> None:
     assert "smem=48B" in rendered
     assert "lmem=24B" in rendered
     assert "cmem=368B" in rendered
+
+
+def test_agentic_dev_eval_uses_isolated_wrapper(monkeypatch) -> None:
+    with _workspace_tempdir() as tmpdir_str:
+        problem = construct_dataset(level=1, problem_ids=[19]).get_problem(19)
+        submission_path = Path(tmpdir_str) / "submission.py"
+        submission_path.write_text(
+            Path("tests/fixtures/submissions/ptx/relu_submission.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        calls: list[dict] = []
+
+        monkeypatch.setattr(
+            "ptxbench.agentic.validate_submission_static",
+            lambda source, backend: StaticCheckResult(valid=True, errors=[], warnings=[]),
+        )
+        monkeypatch.setattr(
+            "ptxbench.agentic.run_ptx_assembly_check",
+            lambda **kwargs: {
+                "compiled": True,
+                "assembled": True,
+                "target_arch": "sm_89",
+                "sources": [],
+                "error": None,
+                "ptxas_error": None,
+            },
+        )
+
+        def fake_safe(**kwargs):
+            calls.append(kwargs)
+            return {
+                "compiled": True,
+                "assembled": True,
+                "loaded": True,
+                "correctness": False,
+                "runtime_ms": -1.0,
+                "ref_runtime_ms": -1.0,
+                "speedup_vs_torch": 0.0,
+                "failure_category": "timeout",
+                "metadata": {
+                    "failure_category": "timeout",
+                    "runtime_error": "evaluation exceeded 11 seconds",
+                    "isolated_eval": {
+                        "stdout_tail": "worker stdout tail",
+                        "stderr_tail": "worker stderr tail",
+                    },
+                },
+            }
+
+        monkeypatch.setattr("ptxbench.agentic.evaluate_submission_payload_safely", fake_safe)
+        observation = run_agentic_validation_pass(
+            problem=problem,
+            backend="ptx",
+            submission_path=submission_path,
+            arch="sm_89",
+            budget=AgenticEpisodeBudget(dev_eval_timeout_seconds=11),
+        )
+
+        assert calls
+        assert calls[0]["timeout_seconds"] == 11
+        assert observation["failure_category"] == "timeout"
+        assert observation["stdout_excerpt"] == "worker stdout tail"
+        assert observation["stderr_excerpt"] == "worker stderr tail"
+
+
+def test_agentic_dev_eval_crash_does_not_abort_validation(monkeypatch) -> None:
+    with _workspace_tempdir() as tmpdir_str:
+        problem = construct_dataset(level=1, problem_ids=[19]).get_problem(19)
+        submission_path = Path(tmpdir_str) / "submission.py"
+        submission_path.write_text(
+            Path("tests/fixtures/submissions/ptx/relu_submission.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            "ptxbench.agentic.validate_submission_static",
+            lambda source, backend: StaticCheckResult(valid=True, errors=[], warnings=[]),
+        )
+        monkeypatch.setattr(
+            "ptxbench.agentic.run_ptx_assembly_check",
+            lambda **kwargs: {
+                "compiled": True,
+                "assembled": True,
+                "target_arch": "sm_89",
+                "sources": [],
+                "error": None,
+                "ptxas_error": None,
+            },
+        )
+        monkeypatch.setattr(
+            "ptxbench.agentic.evaluate_submission_payload_safely",
+            lambda **kwargs: (_ for _ in ()).throw(RuntimeError("worker crashed")),
+        )
+
+        observation = run_agentic_validation_pass(
+            problem=problem,
+            backend="ptx",
+            submission_path=submission_path,
+            arch="sm_89",
+            budget=AgenticEpisodeBudget(),
+        )
+
+        assert observation["correctness"] is False
+        assert observation["failure_category"] == "evaluator_crash"
+        assert observation["failure_stage"] == "evaluator_crash"
+        assert "worker crashed" in observation["metadata"]["runtime_error"]
 
 
 @pytest.mark.gpu

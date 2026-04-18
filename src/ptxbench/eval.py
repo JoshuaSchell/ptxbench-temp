@@ -51,10 +51,16 @@ class EvalResult:
     correctness: bool = False
     runtime_ms: float = -1.0
     ref_runtime_ms: float = -1.0
+    ref_runtime_eager_ms: float = -1.0
+    ref_runtime_compile_default_ms: float | None = None
     speedup_vs_torch: float = 0.0
+    speedup_vs_eager: float = 0.0
+    speedup_vs_compile_default: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        ref_runtime_eager_ms = self.ref_runtime_eager_ms if self.ref_runtime_eager_ms >= 0 else self.ref_runtime_ms
+        speedup_vs_eager = self.speedup_vs_eager if self.speedup_vs_eager != 0.0 or self.speedup_vs_torch == 0.0 else self.speedup_vs_torch
         return {
             "backend": self.backend,
             "problem_id": self.problem_id,
@@ -74,7 +80,11 @@ class EvalResult:
             "correctness": self.correctness,
             "runtime_ms": self.runtime_ms,
             "ref_runtime_ms": self.ref_runtime_ms,
+            "ref_runtime_eager_ms": ref_runtime_eager_ms,
+            "ref_runtime_compile_default_ms": self.ref_runtime_compile_default_ms,
             "speedup_vs_torch": self.speedup_vs_torch,
+            "speedup_vs_eager": speedup_vs_eager,
+            "speedup_vs_compile_default": self.speedup_vs_compile_default,
             "metadata": _json_safe(self.metadata),
         }
 
@@ -253,6 +263,7 @@ def _cleanup_cuda(device: Any) -> None:
 
 
 _MISMATCH_INDEX_LIMIT = 100_000
+_MISMATCH_TARGET_BYTES = 16 * 1024 * 1024
 
 
 def _json_safe_scalar(value: Any) -> Any:
@@ -275,24 +286,44 @@ def _format_index_suffix(index: list[int] | None) -> str:
     return "[" + ", ".join(str(value) for value in index) + "]"
 
 
-def _tensor_has_nan(value: Any) -> bool:
+def _tensor_chunk_numel(*values: Any) -> int:
+    max_element_size = max(
+        8,
+        max(
+            int(value.element_size())
+            for value in values
+            if hasattr(value, "element_size")
+        ),
+    )
+    return max(1, _MISMATCH_TARGET_BYTES // max_element_size)
+
+
+def _tensor_any_special(value: Any, predicate) -> bool:
     import torch
 
     if not isinstance(value, torch.Tensor):
         return False
     if not (value.is_floating_point() or value.is_complex()):
         return False
-    return bool(torch.isnan(value).any().item())
+    flat = value.reshape(-1)
+    chunk_numel = _tensor_chunk_numel(value)
+    for start in range(0, flat.numel(), chunk_numel):
+        chunk = flat[start : start + chunk_numel]
+        if bool(predicate(chunk).any().item()):
+            return True
+    return False
+
+
+def _tensor_has_nan(value: Any) -> bool:
+    import torch
+
+    return _tensor_any_special(value, torch.isnan)
 
 
 def _tensor_has_inf(value: Any) -> bool:
     import torch
 
-    if not isinstance(value, torch.Tensor):
-        return False
-    if not (value.is_floating_point() or value.is_complex()):
-        return False
-    return bool(torch.isinf(value).any().item())
+    return _tensor_any_special(value, torch.isinf)
 
 
 def _float_tensor(value: Any) -> Any:
@@ -315,6 +346,31 @@ def _safe_max_finite(value: Any) -> float | None:
     return float(as_float[finite_mask].max().item())
 
 
+def _max_optional(current: float | None, candidate: float | None) -> float | None:
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+    return max(current, candidate)
+
+
+def _flat_index_to_coords(flat_index: int, shape: tuple[int, ...]) -> list[int]:
+    if not shape:
+        return []
+    coords = [0] * len(shape)
+    remainder = flat_index
+    for index in range(len(shape) - 1, -1, -1):
+        size = int(shape[index])
+        coords[index] = remainder % size
+        remainder //= size
+    return coords
+
+
+def _extract_scalar_value(value: Any, flat_index: int) -> Any:
+    scalar = value.reshape(-1)[flat_index].item()
+    return _json_safe_scalar(scalar)
+
+
 def _build_tensor_mismatch_details(
     reference: Any,
     candidate: Any,
@@ -331,6 +387,9 @@ def _build_tensor_mismatch_details(
         "reference_shape": list(reference.shape),
         "candidate_shape": list(candidate.shape),
         "shape_mismatch": reference.shape != candidate.shape,
+        "reference_dtype": str(reference.dtype),
+        "candidate_dtype": str(candidate.dtype),
+        "dtype_mismatch": reference.dtype != candidate.dtype,
         "max_abs_diff": None,
         "max_rel_diff": None,
         "first_bad_index": None,
@@ -346,29 +405,64 @@ def _build_tensor_mismatch_details(
     if reference.shape != candidate.shape:
         return details
 
-    reference_numeric = _float_tensor(reference)
-    candidate_numeric = _float_tensor(candidate)
-    if reference.is_floating_point() or reference.is_complex():
-        mismatch_mask = ~torch.isclose(reference, candidate, atol=atol, rtol=rtol, equal_nan=False)
-    else:
-        mismatch_mask = reference != candidate
-    details["num_mismatched"] = int(mismatch_mask.sum().item())
+    flat_reference = reference.reshape(-1)
+    flat_candidate = candidate.reshape(-1)
+    chunk_numel = _tensor_chunk_numel(reference, candidate)
+    total_mismatched = 0
+    first_bad_offset: int | None = None
 
-    abs_diff = torch.abs(reference_numeric - candidate_numeric)
-    details["max_abs_diff"] = _safe_max_finite(abs_diff[mismatch_mask]) if bool(mismatch_mask.any().item()) else None
+    for start in range(0, flat_reference.numel(), chunk_numel):
+        stop = start + chunk_numel
+        reference_chunk = flat_reference[start:stop]
+        candidate_chunk = flat_candidate[start:stop]
+        if (
+            reference_chunk.is_floating_point()
+            or reference_chunk.is_complex()
+            or candidate_chunk.is_floating_point()
+            or candidate_chunk.is_complex()
+        ):
+            comparison_reference = reference_chunk
+            comparison_candidate = candidate_chunk
+            if reference_chunk.dtype != candidate_chunk.dtype:
+                promoted_dtype = torch.promote_types(reference_chunk.dtype, candidate_chunk.dtype)
+                comparison_reference = reference_chunk.to(promoted_dtype)
+                comparison_candidate = candidate_chunk.to(promoted_dtype)
+            mismatch_mask = ~torch.isclose(
+                comparison_reference,
+                comparison_candidate,
+                atol=atol,
+                rtol=rtol,
+                equal_nan=False,
+            )
+        else:
+            mismatch_mask = reference_chunk != candidate_chunk
+        mismatch_count = int(mismatch_mask.sum().item())
+        total_mismatched += mismatch_count
+        if not mismatch_count:
+            continue
 
-    reference_abs = torch.abs(reference_numeric)
-    rel_valid = mismatch_mask & torch.isfinite(abs_diff) & torch.isfinite(reference_abs) & (reference_abs > 0)
-    if bool(rel_valid.any().item()):
-        details["max_rel_diff"] = float((abs_diff[rel_valid] / reference_abs[rel_valid]).max().item())
+        reference_numeric = _float_tensor(reference_chunk)
+        candidate_numeric = _float_tensor(candidate_chunk)
+        abs_diff = torch.abs(reference_numeric - candidate_numeric)
+        details["max_abs_diff"] = _max_optional(details["max_abs_diff"], _safe_max_finite(abs_diff[mismatch_mask]))
 
-    if details["num_mismatched"] and details["num_elements"] <= _MISMATCH_INDEX_LIMIT:
-        first_bad = torch.nonzero(mismatch_mask, as_tuple=False)[0]
-        first_bad_index = [int(value.item()) for value in first_bad]
-        details["first_bad_index"] = first_bad_index
-        tensor_index = tuple(first_bad_index)
-        details["reference_value"] = _json_safe_scalar(reference[tensor_index].item())
-        details["candidate_value"] = _json_safe_scalar(candidate[tensor_index].item())
+        reference_abs = torch.abs(reference_numeric)
+        rel_valid = mismatch_mask & torch.isfinite(abs_diff) & torch.isfinite(reference_abs) & (reference_abs > 0)
+        if bool(rel_valid.any().item()):
+            details["max_rel_diff"] = _max_optional(
+                details["max_rel_diff"],
+                float((abs_diff[rel_valid] / reference_abs[rel_valid]).max().item()),
+            )
+
+        if first_bad_offset is None:
+            first_bad_offset = start + int(torch.nonzero(mismatch_mask, as_tuple=False)[0].item())
+
+    details["num_mismatched"] = total_mismatched
+    if first_bad_offset is not None:
+        details["first_bad_index"] = _flat_index_to_coords(first_bad_offset, tuple(int(dim) for dim in reference.shape))
+        if details["num_elements"] <= _MISMATCH_INDEX_LIMIT:
+            details["reference_value"] = _extract_scalar_value(reference, first_bad_offset)
+            details["candidate_value"] = _extract_scalar_value(candidate, first_bad_offset)
 
     return details
 
@@ -388,9 +482,18 @@ def _format_correctness_mismatch(details: dict[str, Any]) -> str:
                 f"got {tuple(details.get('candidate_shape', []))} "
                 f"nan(ref={ref_nan},cand={cand_nan}) inf(ref={ref_inf},cand={cand_inf})"
             )
+        if details.get("dtype_mismatch") and not details.get("num_mismatched"):
+            return (
+                f"dtype mismatch at {path}: expected {details.get('reference_dtype')}, "
+                f"got {details.get('candidate_dtype')}"
+            )
 
         location = path + _format_index_suffix(details.get("first_bad_index"))
         parts = [f"tensor mismatch at {location}"]
+        if details.get("dtype_mismatch"):
+            parts.append(
+                f"dtype(ref={details.get('reference_dtype')},cand={details.get('candidate_dtype')})"
+            )
         if details.get("max_abs_diff") is not None:
             parts.append(f"max_abs_diff={float(details['max_abs_diff']):.6g}")
         if details.get("max_rel_diff") is not None:
@@ -433,11 +536,11 @@ def _compare_outputs(
     import torch
 
     if isinstance(reference, torch.Tensor) and isinstance(candidate, torch.Tensor):
-        if reference.shape != candidate.shape:
+        if reference.shape != candidate.shape or reference.dtype != candidate.dtype:
             details = _build_tensor_mismatch_details(reference, candidate, atol=atol, rtol=rtol, path=path)
             return False, _format_correctness_mismatch(details), details
-        if not torch.allclose(reference, candidate, atol=atol, rtol=rtol):
-            details = _build_tensor_mismatch_details(reference, candidate, atol=atol, rtol=rtol, path=path)
+        details = _build_tensor_mismatch_details(reference, candidate, atol=atol, rtol=rtol, path=path)
+        if details.get("num_mismatched"):
             return False, _format_correctness_mismatch(details), details
         return True, None, None
     if isinstance(reference, (tuple, list)) and isinstance(candidate, type(reference)):
@@ -499,6 +602,40 @@ def _validate_submission_contract(module: types.ModuleType, backend: str) -> Non
             raise AttributeError("PTX submission does not define PTX_KERNELS")
 
 
+def _measure_compile_default_baseline(
+    reference_model: Any,
+    perf_inputs: list[Any],
+    *,
+    num_warmup: int,
+    num_trials: int,
+    device: Any,
+) -> tuple[Any | None, str | None, bool]:
+    import torch
+
+    compiled_reference = None
+    try:
+        compiled_reference = torch.compile(reference_model)
+        with torch.no_grad():
+            compiled_output = compiled_reference(*perf_inputs)
+            del compiled_output
+            torch.cuda.synchronize(device=device)
+        samples = time_callable_cuda_events(
+            lambda: compiled_reference(*perf_inputs),
+            num_warmup=num_warmup,
+            num_trials=num_trials,
+            device=device,
+        )
+        return summarize_timings(samples), None, False
+    except torch.OutOfMemoryError as exc:
+        return None, str(exc), True
+    except Exception as exc:
+        return None, str(exc), False
+    finally:
+        if compiled_reference is not None:
+            del compiled_reference
+        _cleanup_cuda(device)
+
+
 def evaluate_submission(
     problem: Problem,
     submission_path: Path,
@@ -513,6 +650,7 @@ def evaluate_submission(
     run_static_checks: bool = True,
     seed: int = DEFAULT_OFFICIAL_EVAL_SEED,
     profile_request: ProfileRequest | None = None,
+    measure_compile_default_baseline: bool = False,
 ) -> EvalResult:
     import torch
 
@@ -702,11 +840,31 @@ def evaluate_submission(
 
         ref_stats = summarize_timings(reference_samples)
         candidate_stats = summarize_timings(candidate_samples)
-        result.ref_runtime_ms = ref_stats.mean_ms
+        result.ref_runtime_eager_ms = ref_stats.mean_ms
+        result.ref_runtime_ms = result.ref_runtime_eager_ms
         result.runtime_ms = candidate_stats.mean_ms
         if result.runtime_ms > 0:
-            result.speedup_vs_torch = result.ref_runtime_ms / result.runtime_ms
+            result.speedup_vs_eager = result.ref_runtime_eager_ms / result.runtime_ms
+            result.speedup_vs_torch = result.speedup_vs_eager
+        if measure_compile_default_baseline:
+            compile_default_stats, compile_default_error, compile_default_oom = _measure_compile_default_baseline(
+                reference_model,
+                perf_inputs,
+                num_warmup=num_warmup,
+                num_trials=num_perf_trials,
+                device=device,
+            )
+            if compile_default_stats is not None:
+                result.ref_runtime_compile_default_ms = compile_default_stats.mean_ms
+                if result.runtime_ms > 0:
+                    result.speedup_vs_compile_default = result.ref_runtime_compile_default_ms / result.runtime_ms
+                result.metadata["reference_compile_default_timing"] = compile_default_stats.to_dict()
+            elif compile_default_error:
+                result.metadata["reference_compile_default_error"] = compile_default_error
+                if compile_default_oom:
+                    result.metadata["reference_compile_default_oom"] = True
         result.metadata["reference_timing"] = ref_stats.to_dict()
+        result.metadata["reference_eager_timing"] = ref_stats.to_dict()
         result.metadata["candidate_timing"] = candidate_stats.to_dict()
         return result
     finally:

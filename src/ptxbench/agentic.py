@@ -18,12 +18,12 @@ from .config import (
     DEFAULT_DEV_EVAL_PROFILE_TRIALS,
     DEFAULT_DEV_EVAL_PERF_TRIALS,
     DEFAULT_DEV_EVAL_SEED,
+    DEFAULT_DEV_EVAL_TIMEOUT_SECONDS,
     DEFAULT_DEV_EVAL_WARMUP,
 )
 from .dataset import Problem
 from .eval import (
     _validate_submission_contract,
-    evaluate_submission,
     load_submission_module,
     unload_submission_module,
 )
@@ -35,6 +35,7 @@ from .generation import (
     extract_python_source,
     write_generation_artifacts,
 )
+from .isolated_eval import evaluate_submission_payload_safely
 from .profiler import ProfileRequest, format_profile_summary, normalize_profile_metrics
 from .providers import ProviderResponse, generate_with_codex_cli, generate_with_litellm
 from .run_metadata import sha256_text
@@ -49,6 +50,7 @@ class AgenticEpisodeBudget:
     max_tool_calls: int = DEFAULT_AGENTIC_MAX_TOOL_CALLS
     dev_eval_correct_trials: int = DEFAULT_DEV_EVAL_CORRECT_TRIALS
     dev_eval_perf_trials: int = DEFAULT_DEV_EVAL_PERF_TRIALS
+    dev_eval_timeout_seconds: int = DEFAULT_DEV_EVAL_TIMEOUT_SECONDS
     dev_eval_seed: int = DEFAULT_DEV_EVAL_SEED
     dev_eval_warmup: int = DEFAULT_DEV_EVAL_WARMUP
     dev_eval_profile_enabled: bool = DEFAULT_DEV_EVAL_PROFILE_ENABLED
@@ -286,6 +288,7 @@ def run_agentic_episode(
             "wall_clock_budget_seconds": budget.wall_clock_budget_seconds,
             "dev_eval_correct_trials": budget.dev_eval_correct_trials,
             "dev_eval_perf_trials": budget.dev_eval_perf_trials,
+            "dev_eval_timeout_seconds": budget.dev_eval_timeout_seconds,
             "dev_eval_seed": budget.dev_eval_seed,
             "dev_eval_profile_enabled": budget.dev_eval_profile_enabled,
             "dev_eval_profile_tool": budget.dev_eval_profile_tool if budget.dev_eval_profile_enabled else None,
@@ -363,6 +366,9 @@ def run_agentic_validation_pass(
         "runtime_ms": -1.0,
         "ref_runtime_ms": -1.0,
         "speedup_vs_torch": 0.0,
+        "failure_category": "static",
+        "stdout_excerpt": None,
+        "stderr_excerpt": None,
         "profile": None,
     }
     if not static_result.valid:
@@ -376,28 +382,56 @@ def run_agentic_validation_pass(
         observation["assembled"] = bool(assembly_result["assembled"])
         if not assembly_result["assembled"]:
             observation["failure_stage"] = "assemble"
+            observation["failure_category"] = "assemble"
             return observation
 
-    dev_result = evaluate_submission(
-        problem=problem,
-        submission_path=submission_path,
-        backend=backend,
-        arch=arch,
-        num_correct_trials=budget.dev_eval_correct_trials,
-        num_perf_trials=budget.dev_eval_perf_trials,
-        num_warmup=min(budget.dev_eval_warmup, budget.dev_eval_perf_trials),
-        seed=budget.dev_eval_seed,
-        profile_request=budget.profile_request,
+    try:
+        dev_result = evaluate_submission_payload_safely(
+            problem=problem,
+            submission_path=submission_path,
+            backend=backend,
+            arch=arch,
+            num_correct_trials=budget.dev_eval_correct_trials,
+            num_perf_trials=budget.dev_eval_perf_trials,
+            num_warmup=min(budget.dev_eval_warmup, budget.dev_eval_perf_trials),
+            seed=budget.dev_eval_seed,
+            timeout_seconds=budget.dev_eval_timeout_seconds,
+            in_process=False,
+            profile_request=budget.profile_request,
+        )
+    except Exception as exc:
+        dev_result = {
+            "compiled": False,
+            "assembled": False if backend == "ptx" else None,
+            "loaded": False if backend == "ptx" else None,
+            "correctness": False,
+            "runtime_ms": -1.0,
+            "ref_runtime_ms": -1.0,
+            "speedup_vs_torch": 0.0,
+            "failure_category": "evaluator_crash",
+            "metadata": {
+                "failure_category": "evaluator_crash",
+                "runtime_error": str(exc),
+                "evaluator_crash": True,
+                "evaluator_error": True,
+            },
+        }
+
+    observation["compiled"] = bool(dev_result.get("compiled", False))
+    observation["assembled"] = dev_result.get("assembled")
+    observation["loaded"] = dev_result.get("loaded")
+    observation["correctness"] = bool(dev_result.get("correctness", False))
+    observation["runtime_ms"] = float(dev_result.get("runtime_ms", -1.0))
+    observation["ref_runtime_ms"] = float(dev_result.get("ref_runtime_ms", -1.0))
+    observation["speedup_vs_torch"] = float(dev_result.get("speedup_vs_torch", 0.0))
+    observation["metadata"] = dict(dev_result.get("metadata", {}))
+    observation["profile"] = observation["metadata"].get("profile")
+    observation["failure_category"] = str(
+        dev_result.get("failure_category") or observation["metadata"].get("failure_category") or "correctness"
     )
-    observation["compiled"] = dev_result.compiled
-    observation["assembled"] = dev_result.assembled
-    observation["loaded"] = dev_result.loaded
-    observation["correctness"] = dev_result.correctness
-    observation["runtime_ms"] = dev_result.runtime_ms
-    observation["ref_runtime_ms"] = dev_result.ref_runtime_ms
-    observation["speedup_vs_torch"] = dev_result.speedup_vs_torch
-    observation["metadata"] = dev_result.metadata
-    observation["profile"] = dev_result.metadata.get("profile")
+    isolated_metadata = observation["metadata"].get("isolated_eval", {})
+    observation["stdout_excerpt"] = isolated_metadata.get("stdout_tail")
+    observation["stderr_excerpt"] = isolated_metadata.get("stderr_tail")
     observation["failure_stage"] = _infer_agentic_failure_stage(observation)
     return observation
 
@@ -553,10 +587,17 @@ def format_agentic_observation(observation: dict[str, Any]) -> str:
         return "\n".join(lines)
 
     metadata = observation.get("metadata", {})
+    failure_category = observation.get("failure_category")
     if metadata.get("correctness_errors"):
-        lines.append("dev_eval: incorrect - " + "; ".join(metadata["correctness_errors"]))
+        prefix = "dev_eval: incorrect"
+        if failure_category and failure_category != "correctness":
+            prefix += f" ({failure_category})"
+        lines.append(prefix + " - " + "; ".join(metadata["correctness_errors"]))
     elif metadata.get("runtime_error"):
-        lines.append("dev_eval: runtime fail - " + str(metadata["runtime_error"]))
+        prefix = "dev_eval: runtime fail"
+        if failure_category:
+            prefix += f" ({failure_category})"
+        lines.append(prefix + " - " + str(metadata["runtime_error"]))
     elif metadata.get("load_error"):
         lines.append("dev_eval: load fail - " + str(metadata["load_error"]))
     elif metadata.get("assembly_error"):
@@ -564,7 +605,12 @@ def format_agentic_observation(observation: dict[str, Any]) -> str:
     elif metadata.get("compile_error"):
         lines.append("dev_eval: compile fail - " + str(metadata["compile_error"]))
     else:
-        lines.append("dev_eval: failed without a classified error")
+        suffix = f" ({failure_category})" if failure_category else ""
+        lines.append(f"dev_eval: failed without a classified error{suffix}")
+    if observation.get("stdout_excerpt"):
+        lines.append("stdout: " + _truncate_agentic_text(observation["stdout_excerpt"]))
+    if observation.get("stderr_excerpt"):
+        lines.append("stderr: " + _truncate_agentic_text(observation["stderr_excerpt"]))
     if profile_summary:
         lines.append(profile_summary)
     return "\n".join(lines)
@@ -617,6 +663,9 @@ def _infer_agentic_failure_stage(observation: dict[str, Any]) -> str:
     if observation.get("correctness"):
         return "success"
     metadata = observation.get("metadata", {})
+    failure_category = observation.get("failure_category") or metadata.get("failure_category")
+    if failure_category in {"timeout", "oom", "evaluator_crash", "runtime", "correctness", "load", "assemble", "compile"}:
+        return str(failure_category)
     if not observation.get("compiled", False):
         return "compile"
     if observation.get("assembled") is False:

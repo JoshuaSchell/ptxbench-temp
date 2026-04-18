@@ -32,6 +32,11 @@ def main() -> None:
     parser.add_argument("--arch", default="sm_89")
     parser.add_argument("--num-correct-trials", type=int, default=5)
     parser.add_argument("--num-perf-trials", type=int, default=100)
+    parser.add_argument(
+        "--torch-compile-baseline",
+        action="store_true",
+        help="Also time the reference model with default torch.compile and record speedup_vs_compile_default.",
+    )
     parser.add_argument("--profile", action="store_true", help="Collect optional Nsight profiler metrics after correctness passes.")
     parser.add_argument("--profile-trials", type=int, default=1)
     parser.add_argument(
@@ -53,6 +58,7 @@ def main() -> None:
         arch=args.arch,
         num_correct_trials=args.num_correct_trials,
         num_perf_trials=args.num_perf_trials,
+        measure_compile_default_baseline=args.torch_compile_baseline,
         profile_request=ProfileRequest(
             enabled=args.profile,
             num_trials=args.profile_trials,

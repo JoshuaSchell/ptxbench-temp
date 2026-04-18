@@ -62,6 +62,34 @@ def test_backend_summary_tracks_failure_breakdown() -> None:
     assert summary.failure_breakdown["success"] == 1
 
 
+def test_backend_summary_tracks_compile_default_fastp() -> None:
+    rows = [
+        {
+            "compiled": True,
+            "assembled": True,
+            "loaded": True,
+            "correctness": True,
+            "runtime_ms": 1.0,
+            "ref_runtime_ms": 2.0,
+            "ref_runtime_compile_default_ms": 1.5,
+            "metadata": {},
+        },
+        {
+            "compiled": True,
+            "assembled": True,
+            "loaded": True,
+            "correctness": True,
+            "runtime_ms": 2.0,
+            "ref_runtime_ms": 4.0,
+            "ref_runtime_compile_default_ms": 1.0,
+            "metadata": {},
+        },
+    ]
+    summary = compute_backend_summary(rows)
+    assert summary.fast_p_vs_compile_default[1.0] == 0.5
+    assert summary.fast_p_vs_compile_default[2.0] == 0.0
+
+
 def test_classify_result_stage_defaults_to_correctness_failure() -> None:
     row = {
         "compiled": True,
@@ -158,3 +186,22 @@ def test_validate_paired_protocol_parity_rejects_seed_mismatch() -> None:
             ptx_problem_ids=shared_problem_ids,
             cuda_problem_ids=shared_problem_ids,
         )
+
+
+def test_benchmark_analysis_serializes_compile_default_metrics() -> None:
+    benchmark_analysis = _load_benchmark_analysis_script()
+    rows = [
+        {
+            "compiled": True,
+            "assembled": True,
+            "loaded": True,
+            "correctness": True,
+            "runtime_ms": 1.0,
+            "ref_runtime_ms": 2.0,
+            "ref_runtime_compile_default_ms": 1.5,
+            "metadata": {},
+        }
+    ]
+    serialized = benchmark_analysis._serialize_backend_summary(compute_backend_summary(rows))
+    assert serialized["fast1_vs_compile_default"] == 1.0
+    assert serialized["fast2_vs_compile_default"] == 0.0

@@ -190,7 +190,9 @@ def test_eval_result_to_dict_has_kernelbench_style_fields() -> None:
     assert payload["correctness"] is True
     assert payload["runtime_ms"] == 1.5
     assert payload["ref_runtime_ms"] == 2.0
+    assert payload["ref_runtime_eager_ms"] == 2.0
     assert payload["metadata"]["correctness_trials"] == "5/5"
+    assert payload["speedup_vs_eager"] == 4 / 3
 
 
 @pytest.mark.gpu

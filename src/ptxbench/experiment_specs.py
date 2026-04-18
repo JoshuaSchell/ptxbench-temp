@@ -16,6 +16,7 @@ from .config import (
     DEFAULT_DEV_EVAL_PROFILE_TRIALS,
     DEFAULT_DEV_EVAL_PERF_TRIALS,
     DEFAULT_DEV_EVAL_SEED,
+    DEFAULT_DEV_EVAL_TIMEOUT_SECONDS,
     DEFAULT_GENERATION_TIMEOUT_SECONDS,
     DEFAULT_LEVELS,
     DEFAULT_NUM_CORRECT_TRIALS,
@@ -62,6 +63,7 @@ class ExperimentSpec:
     dev_eval_seed: int = DEFAULT_DEV_EVAL_SEED
     dev_eval_correct_trials: int = DEFAULT_DEV_EVAL_CORRECT_TRIALS
     dev_eval_perf_trials: int = DEFAULT_DEV_EVAL_PERF_TRIALS
+    dev_eval_timeout_seconds: int = DEFAULT_DEV_EVAL_TIMEOUT_SECONDS
     dev_eval_profile_enabled: bool = DEFAULT_DEV_EVAL_PROFILE_ENABLED
     dev_eval_profile_trials: int = DEFAULT_DEV_EVAL_PROFILE_TRIALS
     dev_eval_profile_metrics: list[str] = field(default_factory=lambda: list(DEFAULT_DEV_EVAL_PROFILE_METRICS))
@@ -157,6 +159,7 @@ def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
         dev_eval_seed=int(agentic.get("dev_eval_seed", DEFAULT_DEV_EVAL_SEED)),
         dev_eval_correct_trials=int(agentic.get("dev_eval_correct_trials", DEFAULT_DEV_EVAL_CORRECT_TRIALS)),
         dev_eval_perf_trials=int(agentic.get("dev_eval_perf_trials", DEFAULT_DEV_EVAL_PERF_TRIALS)),
+        dev_eval_timeout_seconds=int(agentic.get("dev_eval_timeout_seconds", DEFAULT_DEV_EVAL_TIMEOUT_SECONDS)),
         dev_eval_profile_enabled=bool(agentic.get("profile_enabled", DEFAULT_DEV_EVAL_PROFILE_ENABLED)),
         dev_eval_profile_trials=int(agentic.get("profile_trials", DEFAULT_DEV_EVAL_PROFILE_TRIALS)),
         dev_eval_profile_metrics=[str(value) for value in agentic.get("profile_metrics", DEFAULT_DEV_EVAL_PROFILE_METRICS)],
@@ -285,7 +288,8 @@ def render_experiment_summary(spec: ExperimentSpec) -> str:
             f"max_steps={spec.max_steps}, max_wall_clock_minutes={spec.max_wall_clock_minutes}, "
             f"max_tool_calls={spec.max_tool_calls}, dev_eval_seed={spec.dev_eval_seed}, "
             f"dev_eval_correct_trials={spec.dev_eval_correct_trials}, "
-            f"dev_eval_perf_trials={spec.dev_eval_perf_trials}"
+            f"dev_eval_perf_trials={spec.dev_eval_perf_trials}, "
+            f"dev_eval_timeout_seconds={spec.dev_eval_timeout_seconds}"
         )
         if spec.dev_eval_profile_enabled:
             lines.append(

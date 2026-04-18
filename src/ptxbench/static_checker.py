@@ -105,6 +105,27 @@ SCALAR_ANNOTATIONS = {
     "builtins.int",
 }
 
+FORBIDDEN_NAME_ERRORS = {
+    "open": "ptx_forbidden:open",
+    "eval": "ptx_forbidden:eval",
+    "exec": "ptx_forbidden:exec",
+    "compile": "ptx_forbidden:compile",
+    "__import__": "ptx_forbidden:__import__",
+    "globals": "ptx_forbidden:globals",
+    "locals": "ptx_forbidden:locals",
+    "vars": "ptx_forbidden:vars",
+    "getattr": "ptx_forbidden:getattr",
+    "setattr": "ptx_forbidden:setattr",
+    "os": "ptx_forbidden:os",
+    "sys": "ptx_forbidden:sys",
+    "pathlib": "ptx_forbidden:pathlib",
+    "importlib": "ptx_forbidden:importlib",
+    "inspect": "ptx_forbidden:inspect",
+    "socket": "ptx_forbidden:socket",
+    "requests": "ptx_forbidden:requests",
+    "urllib": "ptx_forbidden:urllib",
+}
+
 
 @dataclass
 class StaticCheckResult:
@@ -213,6 +234,9 @@ def _module_error_name(module_name: str) -> str:
         return "ptx_forbidden:numba"
     if module_name == "time" or module_name.startswith("time."):
         return "ptx_forbidden:timing_hack"
+    for name, error in FORBIDDEN_NAME_ERRORS.items():
+        if module_name == name or module_name.startswith(f"{name}."):
+            return error
     return "ptx_forbidden:disallowed_import"
 
 
@@ -240,18 +264,62 @@ def _check_allowed_imports(tree: ast.AST, errors: list[str]) -> None:
                 _add_error(errors, _module_error_name(combined))
 
 
+def _is_literal_string(node: ast.AST | None) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, str)
+
+
+def _is_literal_string_dict(node: ast.AST | None) -> bool:
+    if not isinstance(node, ast.Dict):
+        return False
+    return all(
+        _is_literal_string(key) and _is_literal_string(value)
+        for key, value in zip(node.keys, node.values, strict=True)
+    )
+
+
+def _check_literal_ptx_sources(tree: ast.AST, errors: list[str]) -> None:
+    for node in tree.body:
+        value = None
+        if isinstance(node, ast.Assign):
+            if any(isinstance(target, ast.Name) and target.id == "PTX_SOURCES" for target in node.targets):
+                value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "PTX_SOURCES":
+                value = node.value
+        if value is None:
+            continue
+        if not (_is_literal_string(value) or _is_literal_string_dict(value)):
+            _add_error(errors, "ptx_forbidden:literal_ptx_sources")
+
+
 def _check_global_ptx_forbidden_nodes(tree: ast.AST, errors: list[str]) -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
             _add_error(errors, "ptx_forbidden:try_except")
+            continue
+
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAME_ERRORS:
+            _add_error(errors, FORBIDDEN_NAME_ERRORS[node.id])
+            continue
+
         if isinstance(node, ast.Attribute):
             dotted = _dotted_name(node)
-            if dotted and dotted.startswith("torch.ops"):
-                _add_error(errors, "ptx_forbidden:torch_ops")
-            if dotted and dotted.startswith("torch.cuda.Stream"):
-                _add_error(errors, "ptx_forbidden:stream_hack")
+            if dotted:
+                root = dotted.split(".", 1)[0]
+                if root in FORBIDDEN_NAME_ERRORS:
+                    _add_error(errors, FORBIDDEN_NAME_ERRORS[root])
+                if dotted.startswith("torch.ops"):
+                    _add_error(errors, "ptx_forbidden:torch_ops")
+                if dotted.startswith("torch.cuda.Stream"):
+                    _add_error(errors, "ptx_forbidden:stream_hack")
+            continue
+
         if isinstance(node, ast.Call):
             dotted = _dotted_name(node.func) or ""
+            if dotted:
+                root = dotted.split(".", 1)[0]
+                if root in FORBIDDEN_NAME_ERRORS:
+                    _add_error(errors, FORBIDDEN_NAME_ERRORS[root])
             if dotted.startswith("torch.ops"):
                 _add_error(errors, "ptx_forbidden:torch_ops")
             if dotted == "torch.compile":
@@ -277,10 +345,12 @@ class _ForwardValidator:
         self.function = function
         self.errors: list[str] = []
         self.env: dict[str, str] = {"self": "self"}
+        self.launch_tensor_names: set[str] = set()
+        self.launch_call_count = 0
         for arg in function.args.args[1:]:
             annotation_name = _annotation_name(arg.annotation)
             if _is_tensor_annotation(arg.annotation) or annotation_name is None:
-                self.env[arg.arg] = "tensor"
+                self.env[arg.arg] = "tensor_input"
             elif annotation_name in SCALAR_ANNOTATIONS:
                 self.env[arg.arg] = "scalar"
             else:
@@ -292,7 +362,12 @@ class _ForwardValidator:
     def validate(self) -> list[str]:
         for statement in self.function.body:
             self._validate_statement(statement)
+        if self.launch_call_count == 0:
+            self.add_error("ptx_required:launch_call")
         return self.errors
+
+    def _is_tensor_kind(self, kind: str) -> bool:
+        return kind in {"tensor_input", "tensor_output"}
 
     def _is_scalar_kind(self, kind: str) -> bool:
         return kind in {"scalar", "bool"}
@@ -339,13 +414,15 @@ class _ForwardValidator:
             self.env[target.id] = kind
             return
         if isinstance(target, (ast.Tuple, ast.List)):
+            child_kind = "scalar" if kind == "shape" else kind
             for item in target.elts:
-                self._bind_target(item, "scalar" if kind == "shape" else kind)
+                self._bind_target(item, child_kind)
             return
         if isinstance(target, ast.Attribute):
             dotted = _dotted_name(target)
-            if dotted != "self.runner" or kind != "runner":
-                self.add_error("ptx_forbidden:disallowed_state")
+            if dotted == "self.runner" and kind == "runner":
+                return
+            self.add_error("ptx_forbidden:disallowed_state")
             return
         self.add_error("ptx_forbidden:disallowed_state")
 
@@ -361,8 +438,17 @@ class _ForwardValidator:
                 if item is not None:
                     self._validate_return(item)
             return
+
         kind = self._infer_expr(value)
-        if kind in {"runner", "unknown"}:
+        if kind == "tensor_input":
+            self.add_error("ptx_forbidden:return_input_tensor")
+            return
+        if kind == "tensor_output":
+            if isinstance(value, ast.Name) and value.id in self.launch_tensor_names:
+                return
+            self.add_error("ptx_forbidden:return_unlaunched_output")
+            return
+        if self._is_tensor_kind(kind) or kind in {"runner", "self", "unknown"}:
             self.add_error("ptx_forbidden:disallowed_return")
 
     def _infer_expr(self, expr: ast.expr | None) -> str:
@@ -371,23 +457,31 @@ class _ForwardValidator:
         if isinstance(expr, ast.Constant):
             if isinstance(expr.value, bool):
                 return "bool"
-            if isinstance(expr.value, (int, float, str)):
+            if isinstance(expr.value, (int, float, str)) or expr.value is None:
                 return "scalar"
             return "unknown"
         if isinstance(expr, ast.Name):
+            if expr.id in FORBIDDEN_NAME_ERRORS:
+                self.add_error(FORBIDDEN_NAME_ERRORS[expr.id])
+                return "unknown"
             return self.env.get(expr.id, "unknown")
         if isinstance(expr, ast.Attribute):
-            base_kind = self._infer_expr(expr.value)
             dotted = _dotted_name(expr)
-            if base_kind == "tensor" and expr.attr in ALLOWED_TENSOR_METADATA_ATTRS:
+            if dotted == "self.runner":
+                return "runner"
+            if dotted:
+                root = dotted.split(".", 1)[0]
+                if root in FORBIDDEN_NAME_ERRORS:
+                    self.add_error(FORBIDDEN_NAME_ERRORS[root])
+                    return "unknown"
+                if dotted.startswith("torch.ops"):
+                    self.add_error("ptx_forbidden:torch_ops")
+                    return "unknown"
+            base_kind = self._infer_expr(expr.value)
+            if self._is_tensor_kind(base_kind) and expr.attr in ALLOWED_TENSOR_METADATA_ATTRS:
                 if expr.attr == "shape":
                     return "shape"
                 return "scalar"
-            if dotted == "self.runner":
-                return "runner"
-            if dotted and dotted.startswith("torch.ops"):
-                self.add_error("ptx_forbidden:torch_ops")
-                return "unknown"
             return "unknown"
         if isinstance(expr, ast.Subscript):
             base_kind = self._infer_expr(expr.value)
@@ -397,7 +491,7 @@ class _ForwardValidator:
             return "unknown"
         if isinstance(expr, (ast.Tuple, ast.List)):
             element_kinds = [self._infer_expr(item) for item in expr.elts]
-            if all(self._is_scalar_kind(kind) for kind in element_kinds):
+            if all(kind in {"scalar", "bool", "shape"} for kind in element_kinds):
                 return "shape"
             return "unknown"
         if isinstance(expr, ast.Dict):
@@ -409,14 +503,14 @@ class _ForwardValidator:
             return "unknown"
         if isinstance(expr, ast.UnaryOp):
             operand_kind = self._infer_expr(expr.operand)
-            if operand_kind == "tensor":
+            if self._is_tensor_kind(operand_kind):
                 self.add_error("ptx_forbidden:tensor_binop")
                 return "unknown"
             return "bool" if isinstance(expr.op, ast.Not) else operand_kind
         if isinstance(expr, ast.BinOp):
             left_kind = self._infer_expr(expr.left)
             right_kind = self._infer_expr(expr.right)
-            if isinstance(expr.op, ast.MatMult) or left_kind == "tensor" or right_kind == "tensor":
+            if isinstance(expr.op, ast.MatMult) or self._is_tensor_kind(left_kind) or self._is_tensor_kind(right_kind):
                 self.add_error("ptx_forbidden:tensor_binop")
                 return "unknown"
             if self._is_scalar_kind(left_kind) and self._is_scalar_kind(right_kind):
@@ -446,6 +540,11 @@ class _ForwardValidator:
 
     def _infer_call(self, call: ast.Call) -> str:
         dotted = _dotted_name(call.func) or ""
+        if dotted:
+            root = dotted.split(".", 1)[0]
+            if root in FORBIDDEN_NAME_ERRORS:
+                self.add_error(FORBIDDEN_NAME_ERRORS[root])
+                return "unknown"
         if dotted.startswith("torch.ops"):
             self.add_error("ptx_forbidden:torch_ops")
             return "unknown"
@@ -509,7 +608,7 @@ class _ForwardValidator:
             return "scalar"
         if isinstance(call.func, ast.Attribute):
             base_kind = self._infer_expr(call.func.value)
-            if base_kind == "tensor":
+            if self._is_tensor_kind(base_kind):
                 if call.func.attr in ALLOWED_TENSOR_METADATA_CALLS:
                     return self._infer_tensor_metadata_call(call.func.attr, call)
                 if call.func.attr in FORBIDDEN_TENSOR_METHODS:
@@ -532,19 +631,19 @@ class _ForwardValidator:
             for keyword in call.keywords:
                 if keyword.value is not None:
                     keyword_kind = self._infer_expr(keyword.value)
-                    if keyword_kind == "tensor":
+                    if self._is_tensor_kind(keyword_kind):
                         self.add_error("ptx_forbidden:disallowed_torch_call")
-            return "tensor"
+            return "tensor_output"
         if dotted == "torch.empty_like":
             if not call.args:
                 self.add_error("ptx_forbidden:disallowed_torch_call")
                 return "unknown"
-            if self._infer_expr(call.args[0]) != "tensor":
+            if not self._is_tensor_kind(self._infer_expr(call.args[0])):
                 self.add_error("ptx_forbidden:disallowed_torch_call")
             for keyword in call.keywords:
                 if keyword.value is not None:
                     self._infer_expr(keyword.value)
-            return "tensor"
+            return "tensor_output"
         if dotted == "torch.empty_strided":
             if len(call.args) < 2:
                 self.add_error("ptx_forbidden:disallowed_torch_call")
@@ -556,18 +655,24 @@ class _ForwardValidator:
             for keyword in call.keywords:
                 if keyword.value is not None:
                     self._infer_expr(keyword.value)
-            return "tensor"
+            return "tensor_output"
         return "unknown"
 
     def _infer_launch_call(self, call: ast.Call) -> str:
         if self._infer_expr(call.func.value) != "runner":
             self.add_error("ptx_forbidden:disallowed_call")
             return "unknown"
+        self.launch_call_count += 1
         for argument in call.args:
-            self._infer_expr(argument)
+            argument_kind = self._infer_expr(argument)
+            if isinstance(argument, ast.Name) and self._is_tensor_kind(argument_kind):
+                self.launch_tensor_names.add(argument.id)
         for keyword in call.keywords:
-            if keyword.value is not None:
-                self._infer_expr(keyword.value)
+            if keyword.value is None:
+                continue
+            keyword_kind = self._infer_expr(keyword.value)
+            if isinstance(keyword.value, ast.Name) and self._is_tensor_kind(keyword_kind):
+                self.launch_tensor_names.add(keyword.value.id)
         return "scalar"
 
     def _infer_tensor_metadata_call(self, attr: str, call: ast.Call) -> str:
@@ -589,12 +694,17 @@ class _ForwardValidator:
         return "scalar"
 
 
-def _find_modelnew_forward(tree: ast.AST) -> ast.FunctionDef | None:
+def _find_modelnew_class(tree: ast.AST) -> ast.ClassDef | None:
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and node.name == "ModelNew":
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name == "forward":
-                    return item
+            return node
+    return None
+
+
+def _find_class_method(class_node: ast.ClassDef, method_name: str) -> ast.FunctionDef | None:
+    for node in class_node.body:
+        if isinstance(node, ast.FunctionDef) and node.name == method_name:
+            return node
     return None
 
 
@@ -602,17 +712,22 @@ def _validate_ptx_ast(source: str) -> list[str]:
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return []
+        return ["ptx_static:syntax_error"]
 
     errors: list[str] = []
     _check_allowed_imports(tree, errors)
     _check_global_ptx_forbidden_nodes(tree, errors)
+    _check_literal_ptx_sources(tree, errors)
 
-    forward = _find_modelnew_forward(tree)
-    if forward is not None:
-        validator = _ForwardValidator(forward)
-        for error in validator.validate():
-            _add_error(errors, error)
+    modelnew = _find_modelnew_class(tree)
+    if modelnew is not None:
+        forward = _find_class_method(modelnew, "forward")
+        if forward is None:
+            _add_error(errors, "ptx_required:forward")
+        else:
+            validator = _ForwardValidator(forward)
+            for error in validator.validate():
+                _add_error(errors, error)
 
     return errors
 
@@ -663,17 +778,17 @@ def validate_submission_static(
     if backend == "ptx":
         for label, pattern in PTX_FORBIDDEN.items():
             if re.search(pattern, source):
-                errors.append(f"ptx_forbidden:{label}")
+                _add_error(errors, f"ptx_forbidden:{label}")
         for label, pattern in PTX_REQUIRED.items():
             if not re.search(pattern, source):
-                errors.append(f"ptx_required:{label}")
+                _add_error(errors, f"ptx_required:{label}")
         for error in _validate_ptx_ast(source):
             _add_error(errors, error)
     elif backend == "cuda":
         for label, pattern in CUDA_REQUIRED.items():
             if not re.search(pattern, source):
-                errors.append(f"cuda_required:{label}")
+                _add_error(errors, f"cuda_required:{label}")
     elif backend is not None:
-        errors.append(f"unsupported_backend:{backend}")
+        _add_error(errors, f"unsupported_backend:{backend}")
 
     return StaticCheckResult(valid=not errors, errors=errors, warnings=warning_messages)

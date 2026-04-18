@@ -16,6 +16,7 @@ from .eval import (
     EvalResult,
     evaluate_submission,
 )
+from .profiler import ProfileRequest
 
 
 WORKER_MODULE = "ptxbench.eval_worker"
@@ -152,6 +153,7 @@ def annotate_eval_payload(
         isolated_metadata["stderr_tail"] = _trim_stream(stderr)
     metadata["isolated_eval"] = isolated_metadata
     normalized["metadata"] = metadata
+    normalized["failure_category"] = metadata["failure_category"]
     return normalized
 
 
@@ -193,6 +195,8 @@ def evaluate_submission_payload_safely(
     seed: int = DEFAULT_OFFICIAL_EVAL_SEED,
     timeout_seconds: int = 300,
     in_process: bool = False,
+    measure_compile_default_baseline: bool = False,
+    profile_request: ProfileRequest | None = None,
 ) -> dict[str, Any]:
     if in_process:
         try:
@@ -208,6 +212,8 @@ def evaluate_submission_payload_safely(
                 num_warmup=num_warmup,
                 run_static_checks=run_static_checks,
                 seed=seed,
+                measure_compile_default_baseline=measure_compile_default_baseline,
+                profile_request=profile_request,
             ).to_dict()
         except Exception as exc:
             payload = _build_failure_payload(
@@ -235,6 +241,8 @@ def evaluate_submission_payload_safely(
         "num_warmup": num_warmup,
         "run_static_checks": run_static_checks,
         "seed": seed,
+        "measure_compile_default_baseline": measure_compile_default_baseline,
+        "profile_request": profile_request.to_dict() if profile_request is not None else None,
     }
 
     with tempfile.TemporaryDirectory(prefix="ptxbench-eval-") as tmpdir_str:
