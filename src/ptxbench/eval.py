@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import gc
 import importlib.util
 import json
+import math
 import os
 import random
 import sys
@@ -251,35 +252,241 @@ def _cleanup_cuda(device: Any) -> None:
         torch.cuda.empty_cache()
 
 
-def _compare_outputs(reference: Any, candidate: Any, *, atol: float, rtol: float) -> tuple[bool, str | None]:
+_MISMATCH_INDEX_LIMIT = 100_000
+
+
+def _json_safe_scalar(value: Any) -> Any:
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, complex):
+        return str(value)
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _format_nested_output_path(path: str, suffix: str) -> str:
+    return f"{path}{suffix}" if path else suffix
+
+
+def _format_index_suffix(index: list[int] | None) -> str:
+    if not index:
+        return ""
+    return "[" + ", ".join(str(value) for value in index) + "]"
+
+
+def _tensor_has_nan(value: Any) -> bool:
+    import torch
+
+    if not isinstance(value, torch.Tensor):
+        return False
+    if not (value.is_floating_point() or value.is_complex()):
+        return False
+    return bool(torch.isnan(value).any().item())
+
+
+def _tensor_has_inf(value: Any) -> bool:
+    import torch
+
+    if not isinstance(value, torch.Tensor):
+        return False
+    if not (value.is_floating_point() or value.is_complex()):
+        return False
+    return bool(torch.isinf(value).any().item())
+
+
+def _float_tensor(value: Any) -> Any:
+    import torch
+
+    if value.is_complex():
+        return torch.abs(value).to(torch.float64)
+    return value.to(torch.float64)
+
+
+def _safe_max_finite(value: Any) -> float | None:
+    import torch
+
+    if value.numel() == 0:
+        return None
+    as_float = _float_tensor(value)
+    finite_mask = torch.isfinite(as_float)
+    if not bool(finite_mask.any().item()):
+        return None
+    return float(as_float[finite_mask].max().item())
+
+
+def _build_tensor_mismatch_details(
+    reference: Any,
+    candidate: Any,
+    *,
+    atol: float,
+    rtol: float,
+    path: str,
+) -> dict[str, Any]:
+    import torch
+
+    details: dict[str, Any] = {
+        "kind": "tensor_mismatch",
+        "path": path,
+        "reference_shape": list(reference.shape),
+        "candidate_shape": list(candidate.shape),
+        "shape_mismatch": reference.shape != candidate.shape,
+        "max_abs_diff": None,
+        "max_rel_diff": None,
+        "first_bad_index": None,
+        "reference_has_nan": _tensor_has_nan(reference),
+        "candidate_has_nan": _tensor_has_nan(candidate),
+        "reference_has_inf": _tensor_has_inf(reference),
+        "candidate_has_inf": _tensor_has_inf(candidate),
+        "num_elements": int(reference.numel()),
+        "num_mismatched": None,
+        "atol": float(atol),
+        "rtol": float(rtol),
+    }
+    if reference.shape != candidate.shape:
+        return details
+
+    reference_numeric = _float_tensor(reference)
+    candidate_numeric = _float_tensor(candidate)
+    if reference.is_floating_point() or reference.is_complex():
+        mismatch_mask = ~torch.isclose(reference, candidate, atol=atol, rtol=rtol, equal_nan=False)
+    else:
+        mismatch_mask = reference != candidate
+    details["num_mismatched"] = int(mismatch_mask.sum().item())
+
+    abs_diff = torch.abs(reference_numeric - candidate_numeric)
+    details["max_abs_diff"] = _safe_max_finite(abs_diff[mismatch_mask]) if bool(mismatch_mask.any().item()) else None
+
+    reference_abs = torch.abs(reference_numeric)
+    rel_valid = mismatch_mask & torch.isfinite(abs_diff) & torch.isfinite(reference_abs) & (reference_abs > 0)
+    if bool(rel_valid.any().item()):
+        details["max_rel_diff"] = float((abs_diff[rel_valid] / reference_abs[rel_valid]).max().item())
+
+    if details["num_mismatched"] and details["num_elements"] <= _MISMATCH_INDEX_LIMIT:
+        first_bad = torch.nonzero(mismatch_mask, as_tuple=False)[0]
+        first_bad_index = [int(value.item()) for value in first_bad]
+        details["first_bad_index"] = first_bad_index
+        tensor_index = tuple(first_bad_index)
+        details["reference_value"] = _json_safe_scalar(reference[tensor_index].item())
+        details["candidate_value"] = _json_safe_scalar(candidate[tensor_index].item())
+
+    return details
+
+
+def _format_correctness_mismatch(details: dict[str, Any]) -> str:
+    kind = str(details.get("kind", "mismatch"))
+    path = str(details.get("path", "output"))
+
+    if kind == "tensor_mismatch":
+        ref_nan = bool(details.get("reference_has_nan"))
+        cand_nan = bool(details.get("candidate_has_nan"))
+        ref_inf = bool(details.get("reference_has_inf"))
+        cand_inf = bool(details.get("candidate_has_inf"))
+        if details.get("shape_mismatch"):
+            return (
+                f"shape mismatch at {path}: expected {tuple(details.get('reference_shape', []))}, "
+                f"got {tuple(details.get('candidate_shape', []))} "
+                f"nan(ref={ref_nan},cand={cand_nan}) inf(ref={ref_inf},cand={cand_inf})"
+            )
+
+        location = path + _format_index_suffix(details.get("first_bad_index"))
+        parts = [f"tensor mismatch at {location}"]
+        if details.get("max_abs_diff") is not None:
+            parts.append(f"max_abs_diff={float(details['max_abs_diff']):.6g}")
+        if details.get("max_rel_diff") is not None:
+            parts.append(f"max_rel_diff={float(details['max_rel_diff']):.6g}")
+        parts.append(f"nan(ref={ref_nan},cand={cand_nan})")
+        parts.append(f"inf(ref={ref_inf},cand={cand_inf})")
+        return " ".join(parts)
+
+    if kind == "sequence_length_mismatch":
+        return (
+            f"sequence length mismatch at {path}: expected {details.get('expected_length')}, "
+            f"got {details.get('candidate_length')}"
+        )
+    if kind == "dict_key_mismatch":
+        return (
+            f"dict key mismatch at {path}: expected {details.get('reference_keys')}, "
+            f"got {details.get('candidate_keys')}"
+        )
+    if kind == "type_mismatch":
+        return (
+            f"type mismatch at {path}: expected {details.get('reference_type')}, "
+            f"got {details.get('candidate_type')}"
+        )
+    if kind == "scalar_mismatch":
+        return (
+            f"scalar mismatch at {path}: expected {details.get('reference_value')}, "
+            f"got {details.get('candidate_value')}"
+        )
+    return f"mismatch at {path}"
+
+
+def _compare_outputs(
+    reference: Any,
+    candidate: Any,
+    *,
+    atol: float,
+    rtol: float,
+    path: str = "output",
+) -> tuple[bool, str | None, dict[str, Any] | None]:
     import torch
 
     if isinstance(reference, torch.Tensor) and isinstance(candidate, torch.Tensor):
         if reference.shape != candidate.shape:
-            return False, f"shape mismatch: expected {tuple(reference.shape)}, got {tuple(candidate.shape)}"
+            details = _build_tensor_mismatch_details(reference, candidate, atol=atol, rtol=rtol, path=path)
+            return False, _format_correctness_mismatch(details), details
         if not torch.allclose(reference, candidate, atol=atol, rtol=rtol):
-            max_diff = torch.max(torch.abs(reference - candidate)).item()
-            return False, f"value mismatch: max_abs_diff={max_diff:.6g}"
-        return True, None
+            details = _build_tensor_mismatch_details(reference, candidate, atol=atol, rtol=rtol, path=path)
+            return False, _format_correctness_mismatch(details), details
+        return True, None, None
     if isinstance(reference, (tuple, list)) and isinstance(candidate, type(reference)):
         if len(reference) != len(candidate):
-            return False, f"sequence length mismatch: expected {len(reference)}, got {len(candidate)}"
-        for ref_item, cand_item in zip(reference, candidate, strict=True):
-            ok, message = _compare_outputs(ref_item, cand_item, atol=atol, rtol=rtol)
+            details = {
+                "kind": "sequence_length_mismatch",
+                "path": path,
+                "expected_length": len(reference),
+                "candidate_length": len(candidate),
+            }
+            return False, _format_correctness_mismatch(details), details
+        for index, (ref_item, cand_item) in enumerate(zip(reference, candidate, strict=True)):
+            child_path = _format_nested_output_path(path, f"[{index}]")
+            ok, message, details = _compare_outputs(ref_item, cand_item, atol=atol, rtol=rtol, path=child_path)
             if not ok:
-                return ok, message
-        return True, None
+                return ok, message, details
+        return True, None, None
     if isinstance(reference, dict) and isinstance(candidate, dict):
         if reference.keys() != candidate.keys():
-            return False, "dict key mismatch"
+            details = {
+                "kind": "dict_key_mismatch",
+                "path": path,
+                "reference_keys": [str(key) for key in reference.keys()],
+                "candidate_keys": [str(key) for key in candidate.keys()],
+            }
+            return False, _format_correctness_mismatch(details), details
         for key in reference:
-            ok, message = _compare_outputs(reference[key], candidate[key], atol=atol, rtol=rtol)
+            child_path = _format_nested_output_path(path, f"[{key!r}]")
+            ok, message, details = _compare_outputs(reference[key], candidate[key], atol=atol, rtol=rtol, path=child_path)
             if not ok:
-                return ok, f"{key}: {message}"
-        return True, None
+                return ok, message, details
+        return True, None, None
+    if type(reference) is not type(candidate):
+        details = {
+            "kind": "type_mismatch",
+            "path": path,
+            "reference_type": type(reference).__name__,
+            "candidate_type": type(candidate).__name__,
+        }
+        return False, _format_correctness_mismatch(details), details
     if reference != candidate:
-        return False, f"scalar mismatch: expected {reference}, got {candidate}"
-    return True, None
+        details = {
+            "kind": "scalar_mismatch",
+            "path": path,
+            "reference_value": _json_safe_scalar(reference),
+            "candidate_value": _json_safe_scalar(candidate),
+        }
+        return False, _format_correctness_mismatch(details), details
+    return True, None, None
 
 
 def _validate_submission_contract(module: types.ModuleType, backend: str) -> None:
@@ -316,6 +523,7 @@ def evaluate_submission(
         source_path=str(submission_path),
         task_family_tags=list(problem.task_family_tags),
     )
+    result.metadata["arch"] = arch
     if profile_request is not None and profile_request.enabled:
         result.metadata["profile"] = skipped_profile_result(
             profile_request,
@@ -416,7 +624,12 @@ def evaluate_submission(
                     return result
 
                 try:
-                    ok, message = _compare_outputs(reference_out, candidate_out, atol=tolerance, rtol=tolerance)
+                    ok, message, details = _compare_outputs(
+                        reference_out,
+                        candidate_out,
+                        atol=tolerance,
+                        rtol=tolerance,
+                    )
                 except torch.OutOfMemoryError as exc:
                     result.metadata["runtime_error"] = str(exc)
                     result.metadata["oom_error"] = True
@@ -431,6 +644,8 @@ def evaluate_submission(
                     _cleanup_cuda(device)
 
                 if not ok:
+                    if details is not None:
+                        result.metadata["correctness_mismatch"] = details
                     result.metadata.setdefault("correctness_errors", []).append(message)
                     result.correctness = False
                     return result
@@ -493,7 +708,6 @@ def evaluate_submission(
             result.speedup_vs_torch = result.ref_runtime_ms / result.runtime_ms
         result.metadata["reference_timing"] = ref_stats.to_dict()
         result.metadata["candidate_timing"] = candidate_stats.to_dict()
-        result.metadata["arch"] = arch
         return result
     finally:
         if submission_module is not None:

@@ -97,6 +97,46 @@ def test_format_agentic_observation_includes_profile_feedback() -> None:
     assert "gpu__time_duration.sum=" in rendered
 
 
+def test_format_agentic_observation_includes_ptx_assembly_feedback() -> None:
+    rendered = format_agentic_observation(
+        {
+            "static_check": {"valid": True, "errors": [], "warnings": []},
+            "assembly_check": {
+                "compiled": True,
+                "assembled": True,
+                "target_arch": "sm_89",
+                "sources": [
+                    {
+                        "source_name": "relu",
+                        "entry": "relu_kernel",
+                        "target_arch": "sm_89",
+                        "registers": 32,
+                        "spill_stores_bytes": 8,
+                        "spill_loads_bytes": 16,
+                        "shared_memory_bytes": 48,
+                        "local_memory_bytes": 24,
+                        "constant_memory_bytes": 368,
+                    }
+                ],
+            },
+            "compiled": True,
+            "assembled": True,
+            "loaded": True,
+            "correctness": False,
+            "metadata": {
+                "correctness_errors": ["tensor mismatch at output[0] max_abs_diff=1 nan(ref=False,cand=False) inf(ref=False,cand=False)"]
+            },
+        }
+    )
+
+    assert "assembly_check: pass arch=sm_89" in rendered
+    assert "relu_kernel regs=32" in rendered
+    assert "spills=8B/16B" in rendered
+    assert "smem=48B" in rendered
+    assert "lmem=24B" in rendered
+    assert "cmem=368B" in rendered
+
+
 @pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for PTX integration tests")
 def test_agentic_ptx_episode_repairs_after_failed_attempt() -> None:

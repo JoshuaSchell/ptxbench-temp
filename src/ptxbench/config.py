@@ -31,10 +31,13 @@ DEFAULT_DEV_EVAL_WARMUP = 2
 DEFAULT_DEV_EVAL_PROFILE_ENABLED = False
 DEFAULT_DEV_EVAL_PROFILE_TOOL = "ncu"
 DEFAULT_DEV_EVAL_PROFILE_TRIALS = 1
-DEFAULT_DEV_EVAL_PROFILE_METRICS = (
+DEFAULT_PTX_PROFILE_METRICS = (
     "gpu__time_duration.sum",
-    "sm__cycles_active.avg",
-    "sm__cycles_elapsed.sum",
+    "sm__throughput.avg.pct_of_peak_sustained_elapsed",
+    "dram__throughput.avg.pct_of_peak_sustained_elapsed",
+)
+DEFAULT_DEV_EVAL_PROFILE_METRICS = (
+    *DEFAULT_PTX_PROFILE_METRICS,
 )
 DEFAULT_GENERATION_TIMEOUT_SECONDS = 900
 DEFAULT_FULL_GENERATION_TIMEOUT_SECONDS = 1800

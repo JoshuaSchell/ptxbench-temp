@@ -6,6 +6,7 @@ from typing import Any
 import ctypes
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 
@@ -29,6 +30,87 @@ class PTXLaunchError(PTXRuntimeError):
     pass
 
 
+_PTXAS_CACHE_FORMAT = "ptxas-v2"
+_PTXAS_COMPILE_ENTRY_RE = re.compile(r"Compiling entry function '([^']+)' for '([^']+)'")
+_PTXAS_FUNCTION_RE = re.compile(r"Function properties for ['\"]?([^'\"\s]+)['\"]?")
+_PTXAS_STACK_RE = re.compile(r"(\d+) bytes stack frame")
+_PTXAS_SPILL_STORES_RE = re.compile(r"(\d+) bytes spill stores")
+_PTXAS_SPILL_LOADS_RE = re.compile(r"(\d+) bytes spill loads")
+_PTXAS_REGISTERS_RE = re.compile(r"Used (\d+) registers")
+_PTXAS_MEMORY_RE = re.compile(r"(\d+) bytes (smem|lmem|cmem\[\d+\])")
+
+
+@dataclass(frozen=True)
+class PTXKernelAssemblyReport:
+    name: str
+    arch: str | None = None
+    registers: int | None = None
+    spill_stores_bytes: int | None = None
+    spill_loads_bytes: int | None = None
+    shared_memory_bytes: int | None = None
+    constant_memory_bytes: int | None = None
+    local_memory_bytes: int | None = None
+    stack_frame_bytes: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "arch": self.arch,
+            "registers": self.registers,
+            "spill_stores_bytes": self.spill_stores_bytes,
+            "spill_loads_bytes": self.spill_loads_bytes,
+            "shared_memory_bytes": self.shared_memory_bytes,
+            "constant_memory_bytes": self.constant_memory_bytes,
+            "local_memory_bytes": self.local_memory_bytes,
+            "stack_frame_bytes": self.stack_frame_bytes,
+        }
+
+
+@dataclass(frozen=True)
+class PTXAssemblyReport:
+    source_name: str
+    arch: str
+    registers: int | None = None
+    spill_stores_bytes: int | None = None
+    spill_loads_bytes: int | None = None
+    shared_memory_bytes: int | None = None
+    constant_memory_bytes: int | None = None
+    local_memory_bytes: int | None = None
+    stack_frame_bytes: int | None = None
+    functions: tuple[PTXKernelAssemblyReport, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_name": self.source_name,
+            "arch": self.arch,
+            "registers": self.registers,
+            "spill_stores_bytes": self.spill_stores_bytes,
+            "spill_loads_bytes": self.spill_loads_bytes,
+            "shared_memory_bytes": self.shared_memory_bytes,
+            "constant_memory_bytes": self.constant_memory_bytes,
+            "local_memory_bytes": self.local_memory_bytes,
+            "stack_frame_bytes": self.stack_frame_bytes,
+            "functions": [function.to_dict() for function in self.functions],
+        }
+
+    def for_entry(self, entry: str | None) -> PTXKernelAssemblyReport | None:
+        if entry:
+            for function in self.functions:
+                if function.name == entry:
+                    return function
+        if len(self.functions) == 1:
+            return self.functions[0]
+        if not self.functions:
+            return None
+        return max(
+            self.functions,
+            key=lambda function: (
+                function.registers is not None,
+                -1 if function.registers is None else function.registers,
+            ),
+        )
+
+
 @dataclass(frozen=True)
 class PTXCompileArtifact:
     source_name: str
@@ -39,11 +121,130 @@ class PTXCompileArtifact:
     log_path: Path
     manifest_path: Path
     toolchain: str
+    assembly_report: PTXAssemblyReport
 
 
 _DRIVER_READY = False
 _TOOLCHAIN_VERSION: str | None = None
 _MODULE_CACHE: dict[tuple[int, str, str], tuple[Any, Any]] = {}
+
+
+def _max_optional_int(values: list[int | None]) -> int | None:
+    present = [value for value in values if value is not None]
+    return max(present) if present else None
+
+
+def _new_kernel_assembly_state(name: str, arch: str | None) -> dict[str, Any]:
+    return {
+        "name": name,
+        "arch": arch,
+        "registers": None,
+        "spill_stores_bytes": None,
+        "spill_loads_bytes": None,
+        "shared_memory_bytes": None,
+        "constant_memory_bytes": None,
+        "local_memory_bytes": None,
+        "stack_frame_bytes": None,
+    }
+
+
+def _materialize_kernel_assembly_report(state: dict[str, Any]) -> PTXKernelAssemblyReport:
+    return PTXKernelAssemblyReport(
+        name=str(state["name"]),
+        arch=state.get("arch"),
+        registers=state.get("registers"),
+        spill_stores_bytes=state.get("spill_stores_bytes"),
+        spill_loads_bytes=state.get("spill_loads_bytes"),
+        shared_memory_bytes=state.get("shared_memory_bytes"),
+        constant_memory_bytes=state.get("constant_memory_bytes"),
+        local_memory_bytes=state.get("local_memory_bytes"),
+        stack_frame_bytes=state.get("stack_frame_bytes"),
+    )
+
+
+def parse_ptxas_output(output: str, *, source_name: str, arch: str) -> PTXAssemblyReport:
+    function_states: dict[str, dict[str, Any]] = {}
+    current_function: str | None = None
+
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        compile_match = _PTXAS_COMPILE_ENTRY_RE.search(line)
+        if compile_match:
+            current_function = compile_match.group(1)
+            function_states.setdefault(
+                current_function,
+                _new_kernel_assembly_state(current_function, compile_match.group(2)),
+            )
+            function_states[current_function]["arch"] = compile_match.group(2)
+            continue
+
+        function_match = _PTXAS_FUNCTION_RE.search(line)
+        if function_match:
+            current_function = function_match.group(1)
+            function_states.setdefault(current_function, _new_kernel_assembly_state(current_function, arch))
+            continue
+
+        if current_function is None:
+            continue
+
+        state = function_states.setdefault(current_function, _new_kernel_assembly_state(current_function, arch))
+
+        stack_match = _PTXAS_STACK_RE.search(line)
+        if stack_match:
+            state["stack_frame_bytes"] = int(stack_match.group(1))
+
+        spill_store_match = _PTXAS_SPILL_STORES_RE.search(line)
+        if spill_store_match:
+            state["spill_stores_bytes"] = int(spill_store_match.group(1))
+
+        spill_load_match = _PTXAS_SPILL_LOADS_RE.search(line)
+        if spill_load_match:
+            state["spill_loads_bytes"] = int(spill_load_match.group(1))
+
+        register_match = _PTXAS_REGISTERS_RE.search(line)
+        if register_match:
+            state["registers"] = int(register_match.group(1))
+
+        if "bytes" not in line:
+            continue
+
+        constant_memory = 0
+        saw_constant_memory = False
+        for value_text, kind in _PTXAS_MEMORY_RE.findall(line):
+            value = int(value_text)
+            if kind == "smem":
+                state["shared_memory_bytes"] = value
+            elif kind == "lmem":
+                state["local_memory_bytes"] = value
+            elif kind.startswith("cmem["):
+                constant_memory += value
+                saw_constant_memory = True
+        if saw_constant_memory:
+            state["constant_memory_bytes"] = constant_memory
+        elif register_match and state["constant_memory_bytes"] is None:
+            state["constant_memory_bytes"] = 0
+        if register_match:
+            if state["shared_memory_bytes"] is None:
+                state["shared_memory_bytes"] = 0
+            if state["local_memory_bytes"] is None:
+                state["local_memory_bytes"] = 0
+
+    function_reports = tuple(_materialize_kernel_assembly_report(state) for state in function_states.values())
+    return PTXAssemblyReport(
+        source_name=source_name,
+        arch=arch,
+        registers=_max_optional_int([function.registers for function in function_reports]),
+        spill_stores_bytes=_max_optional_int([function.spill_stores_bytes for function in function_reports]),
+        spill_loads_bytes=_max_optional_int([function.spill_loads_bytes for function in function_reports]),
+        shared_memory_bytes=_max_optional_int([function.shared_memory_bytes for function in function_reports]),
+        constant_memory_bytes=_max_optional_int([function.constant_memory_bytes for function in function_reports]),
+        local_memory_bytes=_max_optional_int([function.local_memory_bytes for function in function_reports]),
+        stack_frame_bytes=_max_optional_int([function.stack_frame_bytes for function in function_reports]),
+        functions=function_reports,
+    )
 
 
 def _decode_error_text(value: Any) -> str:
@@ -114,7 +315,9 @@ def compile_ptx_source(
     opt_level: int = 3,
 ) -> PTXCompileArtifact:
     toolchain = get_ptxas_version()
-    source_hash = hashlib.sha256(f"{arch}\0{toolchain}\0{source_text}".encode("utf-8")).hexdigest()[:16]
+    source_hash = hashlib.sha256(
+        f"{arch}\0{toolchain}\0O{opt_level}\0{_PTXAS_CACHE_FORMAT}\0{source_text}".encode("utf-8")
+    ).hexdigest()[:16]
     cache_dir = (cache_root or default_cache_root()) / arch / f"{source_name}-{source_hash}"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -125,7 +328,8 @@ def compile_ptx_source(
 
     ptx_path.write_text(source_text, encoding="utf-8")
 
-    if not cubin_path.exists():
+    combined_output = ""
+    if not cubin_path.exists() or not log_path.exists():
         process = subprocess.run(
             [
                 get_ptxas_path(),
@@ -134,6 +338,7 @@ def compile_ptx_source(
                 str(ptx_path),
                 "-o",
                 str(cubin_path),
+                "-v",
                 "--warn-on-spills",
             ],
             capture_output=True,
@@ -146,6 +351,10 @@ def compile_ptx_source(
             raise PTXAssemblyError(
                 f"ptxas failed for {source_name} on {arch}:\n{combined_output or 'no compiler output'}"
             )
+    elif log_path.exists():
+        combined_output = log_path.read_text(encoding="utf-8")
+
+    assembly_report = parse_ptxas_output(combined_output, source_name=source_name, arch=arch)
 
     manifest_path.write_text(
         json.dumps(
@@ -156,6 +365,8 @@ def compile_ptx_source(
                 "toolchain": toolchain,
                 "ptx_path": str(ptx_path),
                 "cubin_path": str(cubin_path),
+                "log_path": str(log_path),
+                "assembly_report": assembly_report.to_dict(),
             },
             indent=2,
         ),
@@ -171,6 +382,7 @@ def compile_ptx_source(
         log_path=log_path,
         manifest_path=manifest_path,
         toolchain=toolchain,
+        assembly_report=assembly_report,
     )
 
 

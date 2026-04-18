@@ -38,7 +38,7 @@ from .generation import (
 from .profiler import ProfileRequest, format_profile_summary, normalize_profile_metrics
 from .providers import ProviderResponse, generate_with_codex_cli, generate_with_litellm
 from .run_metadata import sha256_text
-from .runtime import PTXAssemblyError, compile_ptx_source
+from .runtime import PTXAssemblyError, PTXCompileArtifact, compile_ptx_source
 from .static_checker import validate_submission_static
 
 
@@ -406,31 +406,100 @@ def run_ptx_assembly_check(*, submission_path: Path, arch: str) -> dict[str, Any
     build_dir = submission_path.parent / ".agentic_build"
     build_dir.mkdir(parents=True, exist_ok=True)
     module = None
+    source_reports: list[dict[str, Any]] = []
     try:
         module = load_submission_module(submission_path, build_dir=build_dir, backend="ptx")
         _validate_submission_contract(module, "ptx")
         for source_name, source_text in module.PTX_SOURCES.items():
-            compile_ptx_source(source_name=source_name, source_text=source_text, arch=arch)
+            artifact = compile_ptx_source(source_name=source_name, source_text=source_text, arch=arch)
+            entry = None
+            if hasattr(module, "PTX_KERNELS") and source_name in module.PTX_KERNELS:
+                entry = getattr(module.PTX_KERNELS[source_name], "entry", None)
+            source_reports.append(_serialize_ptx_assembly_artifact(artifact, entry=entry))
         return {
             "compiled": True,
             "assembled": True,
+            "target_arch": arch,
+            "sources": source_reports,
             "error": None,
+            "ptxas_error": None,
         }
     except PTXAssemblyError as exc:
         return {
             "compiled": True,
             "assembled": False,
+            "target_arch": arch,
+            "sources": source_reports,
             "error": str(exc),
+            "ptxas_error": str(exc),
         }
     except Exception as exc:
         return {
             "compiled": False,
             "assembled": False,
+            "target_arch": arch,
+            "sources": source_reports,
             "error": str(exc),
+            "ptxas_error": None,
         }
     finally:
         if module is not None:
             unload_submission_module(module)
+
+
+def _serialize_ptx_assembly_artifact(artifact: PTXCompileArtifact, *, entry: str | None) -> dict[str, Any]:
+    selected_report = artifact.assembly_report.for_entry(entry)
+    return {
+        "source_name": artifact.source_name,
+        "entry": entry,
+        "target_arch": artifact.arch,
+        "registers": selected_report.registers if selected_report is not None else artifact.assembly_report.registers,
+        "spill_stores_bytes": (
+            selected_report.spill_stores_bytes if selected_report is not None else artifact.assembly_report.spill_stores_bytes
+        ),
+        "spill_loads_bytes": (
+            selected_report.spill_loads_bytes if selected_report is not None else artifact.assembly_report.spill_loads_bytes
+        ),
+        "shared_memory_bytes": (
+            selected_report.shared_memory_bytes if selected_report is not None else artifact.assembly_report.shared_memory_bytes
+        ),
+        "local_memory_bytes": (
+            selected_report.local_memory_bytes if selected_report is not None else artifact.assembly_report.local_memory_bytes
+        ),
+        "constant_memory_bytes": (
+            selected_report.constant_memory_bytes
+            if selected_report is not None
+            else artifact.assembly_report.constant_memory_bytes
+        ),
+        "stack_frame_bytes": (
+            selected_report.stack_frame_bytes if selected_report is not None else artifact.assembly_report.stack_frame_bytes
+        ),
+        "log_path": str(artifact.log_path),
+        "report": artifact.assembly_report.to_dict(),
+    }
+
+
+def _format_ptx_bytes(value: Any) -> str:
+    return "?" if value is None else f"{int(value)}B"
+
+
+def _format_ptx_assembly_source(source: dict[str, Any]) -> str:
+    label = str(source.get("entry") or source.get("source_name") or "kernel")
+    registers = source.get("registers")
+    return (
+        f"{label} regs={'?' if registers is None else int(registers)}"
+        f" spills={_format_ptx_bytes(source.get('spill_stores_bytes'))}/{_format_ptx_bytes(source.get('spill_loads_bytes'))}"
+        f" smem={_format_ptx_bytes(source.get('shared_memory_bytes'))}"
+        f" lmem={_format_ptx_bytes(source.get('local_memory_bytes'))}"
+        f" cmem={_format_ptx_bytes(source.get('constant_memory_bytes'))}"
+    )
+
+
+def _truncate_agentic_text(value: Any, *, limit: int = 240) -> str:
+    text = " ".join(str(value).split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
 
 
 def format_agentic_observation(observation: dict[str, Any]) -> str:
@@ -450,9 +519,22 @@ def format_agentic_observation(observation: dict[str, Any]) -> str:
     assembly_check = observation.get("assembly_check")
     if assembly_check is not None:
         if assembly_check.get("assembled"):
-            lines.append("assembly_check: pass")
+            arch = assembly_check.get("target_arch") or "unknown"
+            source_summaries = [
+                _format_ptx_assembly_source(source) for source in (assembly_check.get("sources") or []) if source
+            ]
+            assembly_line = f"assembly_check: pass arch={arch}"
+            if source_summaries:
+                rendered_summaries = "; ".join(source_summaries[:2])
+                if len(source_summaries) > 2:
+                    rendered_summaries += f"; +{len(source_summaries) - 2} more"
+                assembly_line += " " + rendered_summaries
+            lines.append(assembly_line)
         else:
-            lines.append(f"assembly_check: fail - {assembly_check.get('error', 'unknown assembly failure')}")
+            arch = assembly_check.get("target_arch") or "unknown"
+            lines.append(f"assembly_check: fail arch={arch}")
+            error_text = assembly_check.get("ptxas_error") or assembly_check.get("error") or "unknown assembly failure"
+            lines.append("ptxas: " + _truncate_agentic_text(error_text))
             return "\n".join(lines)
 
     if observation.get("compiled") is False and observation.get("metadata", {}).get("compile_error"):
