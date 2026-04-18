@@ -3,12 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import json
-import traceback
 
 from ptxbench.config import DEFAULT_LEVELS, REPO_ROOT
 from ptxbench.dataset import construct_dataset
-from ptxbench.eval import build_evaluation_failure_result, build_missing_submission_result, evaluate_submission
+from ptxbench.eval import build_missing_submission_result
 from ptxbench.generation import generation_failure_path
+from ptxbench.isolated_eval import evaluate_submission_payload_safely
 from ptxbench.run_metadata import (
     default_paper_protocol,
     detect_runtime_environment,
@@ -132,6 +132,12 @@ def main() -> None:
     parser.add_argument("--num-correct-trials", type=int, default=5)
     parser.add_argument("--num-perf-trials", type=int, default=100)
     parser.add_argument("--official-eval-seed", type=int)
+    parser.add_argument("--per-problem-timeout-seconds", type=int, default=300)
+    parser.add_argument(
+        "--in-process",
+        action="store_true",
+        help="Evaluate submissions in the current process instead of an isolated subprocess.",
+    )
     parser.add_argument("--overwrite-existing", action="store_true", help="Re-evaluate even when per-problem result JSON already exists.")
     args = parser.parse_args()
 
@@ -181,29 +187,19 @@ def main() -> None:
                     results.append(payload)
                     continue
         if submission_path.exists():
-            try:
-                result = evaluate_submission(
-                    problem=problem,
-                    submission_path=submission_path,
-                    backend=args.backend,
-                    device=args.device,
-                    precision=args.precision,
-                    arch=args.arch,
-                    num_correct_trials=args.num_correct_trials,
-                    num_perf_trials=args.num_perf_trials,
-                    seed=int(protocol["official_eval_seed"]),
-                )
-            except Exception as exc:
-                result = build_evaluation_failure_result(
-                    problem,
-                    backend=args.backend,
-                    source_path=submission_path,
-                    metadata={
-                        "runtime_error": str(exc),
-                        "runtime_traceback": traceback.format_exc(),
-                        "evaluator_error": True,
-                    },
-                )
+            payload = evaluate_submission_payload_safely(
+                problem=problem,
+                submission_path=submission_path,
+                backend=args.backend,
+                device=args.device,
+                precision=args.precision,
+                arch=args.arch,
+                num_correct_trials=args.num_correct_trials,
+                num_perf_trials=args.num_perf_trials,
+                seed=int(protocol["official_eval_seed"]),
+                timeout_seconds=args.per_problem_timeout_seconds,
+                in_process=args.in_process,
+            )
         else:
             metadata = {
                 "missing_submission": True,
@@ -218,7 +214,7 @@ def main() -> None:
                 expected_path=submission_path,
                 metadata=metadata,
                 )
-        payload = result.to_dict()
+            payload = result.to_dict()
         payload = enrich_result_payload(payload, problem=problem, submission_path=submission_path)
         payload = stamp_eval_metadata(payload, protocol=protocol, submission_path=submission_path)
         results.append(payload)

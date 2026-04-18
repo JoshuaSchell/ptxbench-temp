@@ -8,6 +8,7 @@ import subprocess
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VENDOR_ROOT = REPO_ROOT / "vendor" / "KernelBench-upstream"
 KERNELBENCH_TASK_ROOT = VENDOR_ROOT / "KernelBench"
+KERNELBENCH_UPSTREAM_URL = "https://github.com/ScalingIntelligence/KernelBench.git"
 EXPECTED_KERNELBENCH_COMMIT = "423217d9fda91e0c2d67e4a43bf62f96f6d104f1"
 
 DEFAULT_ARCH = "sm_89"
@@ -53,6 +54,21 @@ class VendorSnapshot:
     task_root: Path
 
 
+def _vendor_bootstrap_command() -> str:
+    return "uv run python scripts/bootstrap_kernelbench.py"
+
+
+def _git_repo_command(repo_root: Path, *args: str) -> list[str]:
+    return [
+        "git",
+        "-c",
+        f"safe.directory={repo_root}",
+        "-C",
+        str(repo_root),
+        *args,
+    ]
+
+
 def detect_vendor_commit() -> str | None:
     git_dir = VENDOR_ROOT / ".git"
     if not git_dir.exists():
@@ -78,7 +94,7 @@ def detect_vendor_commit() -> str | None:
             return head_value
 
     process = subprocess.run(
-        ["git", "-C", str(VENDOR_ROOT), "rev-parse", "HEAD"],
+        _git_repo_command(VENDOR_ROOT, "rev-parse", "HEAD"),
         capture_output=True,
         text=True,
         check=False,
@@ -90,7 +106,7 @@ def detect_vendor_commit() -> str | None:
 
 def get_vendor_snapshot() -> VendorSnapshot:
     return VendorSnapshot(
-        commit=detect_vendor_commit() or EXPECTED_KERNELBENCH_COMMIT,
+        commit=detect_vendor_commit() or "unknown",
         root=VENDOR_ROOT,
         task_root=KERNELBENCH_TASK_ROOT,
     )
@@ -100,9 +116,21 @@ def ensure_vendor_snapshot() -> VendorSnapshot:
     if not KERNELBENCH_TASK_ROOT.exists():
         raise FileNotFoundError(
             f"KernelBench snapshot not found at {KERNELBENCH_TASK_ROOT}. "
-            "Clone the pinned upstream snapshot into vendor/KernelBench-upstream."
+            f"Run `{_vendor_bootstrap_command()}` to clone the pinned snapshot at commit {EXPECTED_KERNELBENCH_COMMIT}."
         )
-    return get_vendor_snapshot()
+    snapshot = get_vendor_snapshot()
+    if snapshot.commit == "unknown":
+        raise RuntimeError(
+            f"KernelBench snapshot at {VENDOR_ROOT} could not be verified. "
+            f"PTXBench requires the vendored task set to be a git checkout pinned to commit {EXPECTED_KERNELBENCH_COMMIT}. "
+            f"Run `{_vendor_bootstrap_command()}` to recreate the pinned snapshot."
+        )
+    if snapshot.commit != EXPECTED_KERNELBENCH_COMMIT:
+        raise RuntimeError(
+            f"KernelBench snapshot commit mismatch at {VENDOR_ROOT}: expected {EXPECTED_KERNELBENCH_COMMIT}, found {snapshot.commit}. "
+            f"PTXBench does not permit evaluating a different task set. Run `{_vendor_bootstrap_command()}` to reset the vendored snapshot."
+        )
+    return snapshot
 
 
 def default_cache_root() -> Path:

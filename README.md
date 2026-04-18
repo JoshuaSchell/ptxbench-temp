@@ -24,10 +24,14 @@ Current vendored task counts:
 ```powershell
 uv sync --extra dev
 uv add torch --index pytorch=https://download.pytorch.org/whl/cu128
-uv run python scripts\run_and_check.py --backend ptx --level 1 --problem-id 19 --submission tests\fixtures\submissions\ptx\relu_submission.py
+uv run python scripts\bootstrap_kernelbench.py
+uv run pytest -q
+uv run python scripts\run_and_check.py --backend ptx --level 1 --problem-id 19 --submission tests\fixtures\submissions\ptx\relu_submission.py --num-correct-trials 1 --num-perf-trials 2
 ```
 
 `torch` needs a CUDA wheel from the official PyTorch index for local GPU evaluation. A CPU-only wheel will import, but `torch.cuda.is_available()` will stay false and PTXBench evaluation will not run.
+
+The vendored KernelBench task snapshot is pinned to a single upstream commit. PTXBench will fail closed if `vendor/KernelBench-upstream/KernelBench` is missing or if `vendor/KernelBench-upstream` is checked out at a different commit. Re-run `uv run python scripts\bootstrap_kernelbench.py` to clone or reset the pinned snapshot.
 
 For the matched CUDA track on Windows, install the Visual Studio `Desktop development with C++` workload, including the MSVC v143 build tools and a Windows SDK. PTXBench attempts to bootstrap the MSVC environment automatically through `VsDevCmd.bat`; if your install lives in a non-standard location, set `PTXBENCH_VSDEVCMD` to that batch file and `PTXBENCH_MSVC_ROOT` to the corresponding `VC\Tools\MSVC\<version>` directory. PTX-only submissions do not require the MSVC host compiler, but `torch.utils.cpp_extension.load_inline` does.
 
@@ -126,6 +130,7 @@ The two `level1_matched_*` files are the current canonical Level 1 experiment co
 
 - `scripts/generate_samples.py`
 - `scripts/run_and_check.py`
+- `scripts/bootstrap_kernelbench.py`
 - `scripts/eval_from_generations.py`
 - `scripts/benchmark_eval_analysis.py`
 - `scripts/sync_to_wsl.py`
@@ -136,6 +141,33 @@ The two `level1_matched_*` files are the current canonical Level 1 experiment co
 `scripts/run_level_paired.py` is the preferred generic Linux entrypoint for Levels 1-4. `scripts/run_level1_paired.py` remains as a backward-compatible alias.
 
 `scripts/eval_from_generations.py` now supports resumable evaluation by reusing existing per-problem result JSON files unless `--overwrite-existing` is passed.
+
+By default, batch evaluation runs each submission in its own subprocess and enforces a wall-clock timeout per problem:
+
+```powershell
+uv run python scripts\eval_from_generations.py --run-name codex-ptx --backend ptx --level 1 --per-problem-timeout-seconds 300
+```
+
+Useful flags:
+
+- `--per-problem-timeout-seconds 300` sets the per-problem wall-clock limit.
+- `--in-process` disables subprocess isolation and uses the legacy in-process path.
+
+## Vendored KernelBench snapshot
+
+Bootstrap the pinned upstream task set into `vendor/KernelBench-upstream`:
+
+```powershell
+uv run python scripts\bootstrap_kernelbench.py
+```
+
+Verify an existing vendored checkout without fetching:
+
+```powershell
+uv run python scripts\bootstrap_kernelbench.py --verify-only
+```
+
+PTXBench expects the vendored snapshot at commit `423217d9fda91e0c2d67e4a43bf62f96f6d104f1`. Dataset construction and paper-run metadata collection both refuse to proceed if the vendored task set is missing or at any other commit.
 
 ## WSL2 paper-run workflow
 

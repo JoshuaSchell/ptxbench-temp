@@ -90,7 +90,7 @@ def test_eval_from_generations_reuses_existing_result_when_hash_and_protocol_mat
         def fail_if_re_evaluated(**kwargs):
             raise AssertionError("resume path should not re-evaluate when protocol and hash match")
 
-        monkeypatch.setattr(eval_script, "evaluate_submission", fail_if_re_evaluated)
+        monkeypatch.setattr(eval_script, "evaluate_submission_payload_safely", fail_if_re_evaluated)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -104,6 +104,7 @@ def test_eval_from_generations_reuses_existing_result_when_hash_and_protocol_mat
                 "1",
                 "--problem-ids",
                 "19",
+                "--in-process",
             ],
         )
         eval_script.main()
@@ -173,9 +174,9 @@ def test_eval_from_generations_re_evaluates_when_submission_hash_changes(monkeyp
                 runtime_ms=3.0,
                 ref_runtime_ms=6.0,
                 speedup_vs_torch=2.0,
-            )
+            ).to_dict()
 
-        monkeypatch.setattr(eval_script, "evaluate_submission", fake_evaluate_submission)
+        monkeypatch.setattr(eval_script, "evaluate_submission_payload_safely", fake_evaluate_submission)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -189,6 +190,7 @@ def test_eval_from_generations_re_evaluates_when_submission_hash_changes(monkeyp
                 "1",
                 "--problem-ids",
                 "19",
+                "--in-process",
             ],
         )
         eval_script.main()

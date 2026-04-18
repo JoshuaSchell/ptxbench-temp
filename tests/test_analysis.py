@@ -73,7 +73,7 @@ def test_classify_result_stage_defaults_to_correctness_failure() -> None:
     assert classify_result_stage(row) == "correctness"
 
 
-def test_build_evaluation_failure_result_classifies_as_runtime() -> None:
+def test_build_evaluation_failure_result_classifies_as_oom() -> None:
     problem = construct_dataset(level=1, problem_ids=[19]).get_problem(19)
     result = build_evaluation_failure_result(
         problem,
@@ -85,7 +85,7 @@ def test_build_evaluation_failure_result_classifies_as_runtime() -> None:
     row = result.to_dict()
     assert row["compiled"] is True
     assert row["correctness"] is False
-    assert classify_result_stage(row) == "runtime"
+    assert classify_result_stage(row) == "oom"
 
 
 def test_compute_agentic_budget_summary_uses_first_success_steps() -> None:

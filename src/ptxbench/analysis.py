@@ -5,7 +5,7 @@ import math
 import statistics
 
 
-FAILURE_STAGES = ("success", "compile", "assemble", "load", "runtime", "correctness")
+FAILURE_STAGES = ("success", "compile", "assemble", "load", "runtime", "correctness", "timeout", "oom", "evaluator_crash")
 
 
 def geometric_mean_speed_ratio_correct_only(
@@ -98,8 +98,17 @@ class AgenticBudgetSummary:
 
 def classify_result_stage(row: dict) -> str:
     metadata = row.get("metadata", {})
+    explicit_category = metadata.get("failure_category")
+    if isinstance(explicit_category, str) and explicit_category in FAILURE_STAGES:
+        return explicit_category
     if row.get("correctness"):
         return "success"
+    if metadata.get("timeout_error"):
+        return "timeout"
+    if metadata.get("oom_error"):
+        return "oom"
+    if metadata.get("evaluator_crash") or metadata.get("evaluator_error"):
+        return "evaluator_crash"
     if not row.get("compiled", False):
         return "compile"
     if row.get("assembled") is False:
