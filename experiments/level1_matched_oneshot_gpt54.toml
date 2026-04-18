@@ -1,0 +1,51 @@
+[experiment]
+name = "level1-matched-oneshot-gpt54"
+description = "Level 1 matched same-machine one-shot PTX vs CUDA control run. Use the CUDA side of this run as the KernelBench-style control on this machine."
+run_name = "level1-matched-oneshot-gpt54"
+spec_version = "v1"
+phase = "full"
+provider = "codex"
+model = "gpt-5.4"
+track = "oneshot"
+level = 1
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 1800
+chunk_size = 5
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+codex_bin = "codex"
+
+[runner]
+distro = "Ubuntu"
+target = "~/ptxbench/PTXBench"
+
+[lock]
+locked = true
+canonical = true
+machine_label = "WSL2 Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Same-machine one-shot PTX vs CUDA comparison with a KernelBench-style CUDA control."
+kernelbench_parity_scope = "Use the CUDA side of this exact spec as the same-machine KernelBench-style one-shot control before making parity claims."
+
+[evidence]
+required_outputs = [
+  "runs/level1-matched-oneshot-gpt54/paper_run_manifest.json",
+  "results/timing/level1-matched-oneshot-gpt54/ptx/level1/summary.json",
+  "results/timing/level1-matched-oneshot-gpt54/cuda/level1/summary.json",
+  "results/analysis/level1-matched-oneshot-gpt54_level1.json",
+  "results/analysis/level1-matched-oneshot-gpt54_level1.md",
+]
+
+[notes]
+items = [
+  "This is one of the two canonical Level 1 experiment specs for this machine.",
+  "This is the locked one-shot control for same-machine PTX vs CUDA comparison.",
+  "Use this run before making any PTX-vs-CUDA or KernelBench-style one-shot claims.",
+  "Do not change model, arch, trials, or timeout without creating a new spec file.",
+]

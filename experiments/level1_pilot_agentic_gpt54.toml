@@ -1,0 +1,59 @@
+[experiment]
+name = "level1-pilot-agentic-gpt54"
+description = "Level 1 matched same-machine agentic PTX vs CUDA pilot on the fixed Level 1 pilot subset."
+run_name = "level1-pilot-agentic-gpt54"
+spec_version = "v1"
+phase = "pilot"
+provider = "codex"
+model = "gpt-5.4"
+track = "agentic"
+level = 1
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 900
+problem_ids = [1, 3, 19, 23, 40]
+chunk_size = 5
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+codex_bin = "codex"
+
+[agentic]
+max_steps = 5
+max_wall_clock_minutes = 20
+max_tool_calls = 4
+dev_eval_seed = 7
+dev_eval_correct_trials = 2
+dev_eval_perf_trials = 5
+
+[runner]
+distro = "Ubuntu"
+target = "~/ptxbench/PTXBench"
+
+[lock]
+locked = true
+canonical = false
+machine_label = "WSL2 Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Level 1 agentic pilot to validate same-machine PTX vs CUDA benchmark plumbing on the fixed pilot subset."
+kernelbench_parity_scope = "Protocol validation only. Do not use this pilot run for final PTX-vs-CUDA agentic conclusions."
+
+[evidence]
+required_outputs = [
+  "runs/level1-pilot-agentic-gpt54/paper_run_manifest.json",
+  "results/timing/level1-pilot-agentic-gpt54/ptx/level1/summary.json",
+  "results/timing/level1-pilot-agentic-gpt54/cuda/level1/summary.json",
+  "results/analysis/level1-pilot-agentic-gpt54_level1.json",
+  "results/analysis/level1-pilot-agentic-gpt54_level1.md",
+]
+
+[notes]
+items = [
+  "Locked pilot rehearsal for the canonical Level 1 agentic experiment.",
+  "Uses the fixed Level 1 pilot subset: 1, 3, 19, 23, 40.",
+  "Use this run to validate manifests, resumable eval, paired analysis, evidence completeness, and held-back final scoring separation before the full run.",
+]

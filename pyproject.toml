@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ptxbench"
+version = "0.1.0"
+description = "PTX-first benchmark for LLM-generated GPU kernels on KernelBench Level 1-4 tasks."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Josh" }
+]
+dependencies = [
+  "cuda-python>=13.0",
+  "litellm>=1.79",
+  "numpy>=1.26",
+  "pydantic>=2.8",
+  "typing-extensions>=4.12",
+]
+
+[project.optional-dependencies]
+gpu = [
+  "ninja>=1.11",
+  "torch>=2.7",
+  "transformers>=4.51",
+]
+dev = [
+  "pytest>=8.3",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "gpu: requires a CUDA-capable PyTorch environment",
+]

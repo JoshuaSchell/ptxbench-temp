@@ -1,0 +1,112 @@
+Metadata-Version: 2.4
+Name: ptxbench
+Version: 0.1.0
+Summary: PTX-first benchmark for LLM-generated GPU kernels on KernelBench Level 1-4 tasks.
+Author: Josh
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: cuda-python>=13.0
+Requires-Dist: litellm>=1.79
+Requires-Dist: numpy>=1.26
+Requires-Dist: pydantic>=2.8
+Requires-Dist: typing-extensions>=4.12
+Provides-Extra: gpu
+Requires-Dist: ninja>=1.11; extra == "gpu"
+Requires-Dist: torch>=2.7; extra == "gpu"
+Requires-Dist: transformers>=4.51; extra == "gpu"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3; extra == "dev"
+
+# PTXBench
+
+PTXBench is a PTX-first benchmark scaffold that mirrors the KernelBench task family across Levels 1-4 while comparing PTX-authored submissions against both PyTorch eager and matched CUDA-authored submissions.
+
+## What is included
+
+- Pinned local KernelBench snapshot for Levels 1-4
+- PTX submission contract built around `ModelNew`, `PTX_SOURCES`, and `PTX_KERNELS`
+- PTX assembler + CUDA driver runtime using `ptxas` and `cuda-python`
+- Static guardrails against fallback and timing hacks
+- Single-sample, batch-eval, and analysis scripts
+
+Current vendored task counts:
+
+- Level 1: 100 tasks
+- Level 2: 100 tasks
+- Level 3: 50 tasks
+- Level 4: 20 tasks
+
+## Quick start
+
+```powershell
+uv sync --extra dev
+uv add torch --index pytorch=https://download.pytorch.org/whl/cu128
+uv run python scripts\run_and_check.py --backend ptx --level 1 --problem-id 19 --submission tests\fixtures\submissions\ptx\relu_submission.py
+```
+
+`torch` needs a CUDA wheel from the official PyTorch index for local GPU evaluation. A CPU-only wheel will import, but `torch.cuda.is_available()` will stay false and PTXBench evaluation will not run.
+
+For the matched CUDA track on Windows, install the Visual Studio `Desktop development with C++` workload, including the MSVC v143 build tools and a Windows SDK. PTXBench attempts to bootstrap the MSVC environment automatically through `VsDevCmd.bat`; if your install lives in a non-standard location, set `PTXBENCH_VSDEVCMD` to that batch file and `PTXBENCH_MSVC_ROOT` to the corresponding `VC\Tools\MSVC\<version>` directory. PTX-only submissions do not require the MSVC host compiler, but `torch.utils.cpp_extension.load_inline` does.
+
+Level 4 also pulls in Hugging Face transformer models from the vendored KernelBench tasks. That means Level 4 runs need:
+
+- `transformers` installed
+- network access or a pre-populated Hugging Face cache
+- enough disk and GPU memory for large pretrained checkpoints
+
+## Generation providers
+
+`scripts/generate_samples.py` can now use either:
+
+- `--provider litellm` to call a normal LiteLLM backend
+- `--provider codex` to shell out to a locally installed `codex` CLI
+
+Example:
+
+```powershell
+uv run python scripts\generate_samples.py --provider codex --model gpt-5.4 --backend ptx --level 1 --run-name codex-ptx
+```
+
+When using the local Codex path, PTXBench invokes `codex exec` non-interactively and captures the last assistant message as the generated submission.
+
+## Core scripts
+
+- `scripts/generate_samples.py`
+- `scripts/run_and_check.py`
+- `scripts/eval_from_generations.py`
+- `scripts/benchmark_eval_analysis.py`
+- `scripts/sync_to_wsl.py`
+- `scripts/run_level_paired.py`
+- `scripts/run_level1_paired.py`
+- `scripts/run_level1_paired_wsl.py`
+
+`scripts/run_level_paired.py` is the preferred generic Linux entrypoint for Levels 1-4. `scripts/run_level1_paired.py` remains as a backward-compatible alias.
+
+## WSL2 paper-run workflow
+
+For paper-grade runs on this machine, use Ubuntu WSL2 as the primary experiment environment and keep native Windows as a secondary/dev path.
+
+1. Sync the repo into the Linux filesystem and include any existing generated runs you want to reevaluate:
+
+```powershell
+uv run python scripts\sync_to_wsl.py --include-run pilot-gpt54
+```
+
+2. Bootstrap the Linux environment inside the synced repo:
+
+```powershell
+wsl bash -lc "cd ~/ptxbench/PTXBench && bash scripts/setup_wsl_benchmark_env.sh"
+```
+
+The bootstrap script now installs a Linux `node` if needed so WSL can run the local `codex` CLI shim, and `scripts/run_level1_paired_wsl.py` will reuse your Windows `C:\Users\Josh\.codex` auth state by default.
+
+3. Run the paired workflow for the level you want inside WSL2:
+
+```powershell
+uv run python scripts\run_level1_paired_wsl.py --phase pilot --level 3 --run-name pilot-gpt54-l3 --skip-generation
+```
+
+The paired analysis command now writes both JSON and Markdown outputs under `results/analysis/`, including failure breakdowns, correctness rates, and a paper-facing methodology/context section.
+
+For a full paired run in WSL2, use `--level 1`, `--level 2`, `--level 3`, or `--level 4` on the same wrapper. Level 4 is the heaviest tier and will generally be the slowest to bootstrap because it may download large pretrained models before evaluation.

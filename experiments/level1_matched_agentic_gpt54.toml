@@ -1,0 +1,59 @@
+[experiment]
+name = "level1-matched-agentic-gpt54"
+description = "Level 1 matched same-machine agentic PTX vs CUDA run under a fixed budget."
+run_name = "level1-matched-agentic-gpt54"
+spec_version = "v1"
+phase = "full"
+provider = "codex"
+model = "gpt-5.4"
+track = "agentic"
+level = 1
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 1800
+chunk_size = 5
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+codex_bin = "codex"
+
+[agentic]
+max_steps = 5
+max_wall_clock_minutes = 20
+max_tool_calls = 4
+dev_eval_seed = 7
+dev_eval_correct_trials = 2
+dev_eval_perf_trials = 5
+
+[runner]
+distro = "Ubuntu"
+target = "~/ptxbench/PTXBench"
+
+[lock]
+locked = true
+canonical = true
+machine_label = "WSL2 Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Same-machine agentic PTX vs CUDA comparison under a fixed repair budget."
+kernelbench_parity_scope = "This spec is for PTX-vs-CUDA agentic comparison on the KernelBench task set; it is not the primary one-shot parity control."
+
+[evidence]
+required_outputs = [
+  "runs/level1-matched-agentic-gpt54/paper_run_manifest.json",
+  "results/timing/level1-matched-agentic-gpt54/ptx/level1/summary.json",
+  "results/timing/level1-matched-agentic-gpt54/cuda/level1/summary.json",
+  "results/analysis/level1-matched-agentic-gpt54_level1.json",
+  "results/analysis/level1-matched-agentic-gpt54_level1.md",
+]
+
+[notes]
+items = [
+  "This is one of the two canonical Level 1 experiment specs for this machine.",
+  "This is the primary locked agentic PTX-vs-CUDA comparison on this machine.",
+  "The official score comes from the held-back final evaluation in eval_from_generations.py, not the dev-eval loop.",
+  "Do not change budgets, seeds, model, arch, or timeout without creating a new spec file.",
+]

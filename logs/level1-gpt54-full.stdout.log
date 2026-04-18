@@ -1,0 +1,28 @@
+torch_version= 2.11.0+cu128
+torch_cuda_available= True
+torch_cuda_version= 12.8
+gpu_name= NVIDIA GeForce RTX 4090
+ptxas_path= /usr/local/cuda/bin/ptxas
+ptxas_version= Build cuda_12.4.r12.4/compiler.34097967_0
+nvcc_path= /usr/local/cuda/bin/nvcc
+nvcc_version= Build cuda_12.4.r12.4/compiler.34097967_0
+node_version=v22.22.2
+codex_version=codex-cli 0.121.0
+[generated] ptx problem 1
+[generated] ptx problem 2
+[generated] ptx problem 3
+[generated] ptx problem 4
+[generated] ptx problem 5
+[summary] ptx: generated=5 skipped=0 failed=0
+[generated] ptx problem 6
+[generated] ptx problem 7
+[generated] ptx problem 8
+[generated] ptx problem 9
+[generated] ptx problem 10
+[summary] ptx: generated=5 skipped=0 failed=0
+[generated] ptx problem 11
+[generated] ptx problem 12
+[generated] ptx problem 13
+[generated] ptx problem 14
+[generated] ptx problem 15
+[summary] ptx: generated=5 skipped=0 failed=0

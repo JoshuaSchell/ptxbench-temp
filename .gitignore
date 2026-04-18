@@ -1,0 +1,10 @@
+.pytest_cache/
+.venv/
+__pycache__/
+*.pyc
+runs/
+results/
+!results/.gitkeep
+!results/analysis/.gitkeep
+!results/timing/.gitkeep
+.ptxbench_cache/
