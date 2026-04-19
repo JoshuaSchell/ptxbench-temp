@@ -61,6 +61,83 @@ def test_isolated_eval_returns_worker_payload(monkeypatch) -> None:
         assert payload["metadata"]["isolated_eval"]["returncode"] == 0
 
 
+def test_isolated_eval_accepts_compile_baseline_flag_without_type_error(monkeypatch) -> None:
+    with _workspace_tempdir() as tmpdir_str:
+        submission_path = Path(tmpdir_str) / "submission.py"
+        submission_path.write_text("print('submission')\n", encoding="utf-8")
+
+        def fake_run(command, **kwargs):
+            request_path = Path(command[command.index("--input") + 1])
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            assert request["measure_compile_default_baseline"] is False
+
+            output_path = Path(command[command.index("--output") + 1])
+            payload = EvalResult(
+                backend="ptx",
+                problem_id=19,
+                problem_name="19_ReLU.py",
+                source_path=str(submission_path),
+                compiled=True,
+                assembled=True,
+                loaded=True,
+                correctness=True,
+                runtime_ms=1.0,
+                ref_runtime_ms=2.0,
+                speedup_vs_torch=2.0,
+            ).to_dict()
+            output_path.write_text(json.dumps(payload), encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, stdout="worker ok", stderr="")
+
+        monkeypatch.setattr("ptxbench.isolated_eval.subprocess.run", fake_run)
+        payload = evaluate_submission_payload_safely(
+            _problem(),
+            submission_path,
+            backend="ptx",
+            timeout_seconds=12,
+            measure_compile_default_baseline=False,
+        )
+
+        assert payload["correctness"] is True
+        assert payload["metadata"]["failure_category"] == "success"
+
+
+def test_isolated_eval_in_process_forwards_compile_baseline_flag(monkeypatch) -> None:
+    with _workspace_tempdir() as tmpdir_str:
+        submission_path = Path(tmpdir_str) / "submission.py"
+        submission_path.write_text("print('submission')\n", encoding="utf-8")
+        calls: list[dict] = []
+
+        def fake_evaluate_submission(**kwargs):
+            calls.append(kwargs)
+            return EvalResult(
+                backend="ptx",
+                problem_id=19,
+                problem_name="19_ReLU.py",
+                source_path=str(submission_path),
+                compiled=True,
+                assembled=True,
+                loaded=True,
+                correctness=True,
+                runtime_ms=1.0,
+                ref_runtime_ms=2.0,
+                speedup_vs_torch=2.0,
+            )
+
+        monkeypatch.setattr("ptxbench.isolated_eval.evaluate_submission", fake_evaluate_submission)
+        payload = evaluate_submission_payload_safely(
+            _problem(),
+            submission_path,
+            backend="ptx",
+            in_process=True,
+            measure_compile_default_baseline=False,
+        )
+
+        assert calls
+        assert calls[0]["measure_compile_default_baseline"] is False
+        assert payload["correctness"] is True
+        assert payload["metadata"]["isolated_eval"]["mode"] == "in_process"
+
+
 def test_isolated_eval_timeout_returns_failed_payload(monkeypatch) -> None:
     with _workspace_tempdir() as tmpdir_str:
         submission_path = Path(tmpdir_str) / "submission.py"
