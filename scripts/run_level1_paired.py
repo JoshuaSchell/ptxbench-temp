@@ -196,6 +196,7 @@ def build_generation_command(
     dev_eval_profile_trials: int,
     dev_eval_profile_metrics: list[str],
     codex_bin: str,
+    codex_sandbox: str,
     codex_home: str | None,
     codex_config: list[str],
     chunk_label: str,
@@ -257,6 +258,7 @@ def build_generation_command(
                 command.extend(["--dev-eval-profile-metric", metric])
     if provider == "codex":
         command.extend(["--codex-bin", codex_bin])
+        command.extend(["--codex-sandbox", codex_sandbox])
         if codex_home:
             command.extend(["--codex-home", codex_home])
         for config_override in codex_config:
@@ -293,6 +295,7 @@ def execute_generation_tasks(
     dev_eval_profile_metrics: list[str],
     python_exe: str,
     codex_bin: str,
+    codex_sandbox: str,
     codex_home: str | None,
     codex_config: list[str],
     max_concurrent_chunks: int,
@@ -388,6 +391,7 @@ def execute_generation_tasks(
             dev_eval_profile_trials=dev_eval_profile_trials,
             dev_eval_profile_metrics=dev_eval_profile_metrics,
             codex_bin=codex_bin,
+            codex_sandbox=codex_sandbox,
             codex_home=codex_home,
             codex_config=codex_config,
             chunk_label=task.chunk_label,
@@ -492,6 +496,11 @@ def main() -> None:
     )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--codex-bin", default="codex")
+    parser.add_argument(
+        "--codex-sandbox",
+        default="read-only",
+        choices=["read-only", "workspace-write", "danger-full-access"],
+    )
     parser.add_argument("--codex-home")
     parser.add_argument("--codex-config", action="append", default=[])
     parser.add_argument("--max-steps", type=int, default=DEFAULT_AGENTIC_MAX_STEPS)
@@ -612,6 +621,7 @@ def main() -> None:
                 dev_eval_profile_metrics=args.dev_eval_profile_metric,
                 python_exe=python_exe,
                 codex_bin=args.codex_bin,
+                codex_sandbox=args.codex_sandbox,
                 codex_home=args.codex_home,
                 codex_config=args.codex_config,
                 max_concurrent_chunks=max_concurrent_chunks,
@@ -652,6 +662,7 @@ def main() -> None:
                     dev_eval_profile_metrics=args.dev_eval_profile_metric,
                     python_exe=python_exe,
                     codex_bin=args.codex_bin,
+                    codex_sandbox=args.codex_sandbox,
                     codex_home=args.codex_home,
                     codex_config=args.codex_config,
                     max_concurrent_chunks=max_concurrent_chunks,

@@ -33,6 +33,15 @@ uv run python scripts/run_experiment.py --spec experiments/level1_matched_agenti
 uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml
 ```
 
+## How to run multiple specs sequentially
+
+```bash
+uv run python scripts/run_experiment_batch.py \
+  --spec experiments/level1_matched_oneshot_gpt54.toml \
+  --spec experiments/level2_spread_oneshot_gpt54.toml \
+  --spec experiments/level3_spread_oneshot_gpt54.toml
+```
+
 ## Rules
 
 - If a run configuration changes materially, create a new spec file instead of editing an old one in place.

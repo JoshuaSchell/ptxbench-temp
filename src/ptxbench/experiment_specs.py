@@ -55,6 +55,7 @@ class ExperimentSpec:
     parallel_backends: bool = False
     device: str = "cuda:0"
     codex_bin: str = "codex"
+    codex_sandbox: str = "read-only"
     codex_home: str | None = None
     codex_config: list[str] = field(default_factory=list)
     max_steps: int = DEFAULT_AGENTIC_MAX_STEPS
@@ -147,6 +148,7 @@ def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
         parallel_backends=bool(experiment.get("parallel_backends", False)),
         device=str(experiment.get("device", "cuda:0")),
         codex_bin=str(experiment.get("codex_bin", "codex")),
+        codex_sandbox=str(experiment.get("codex_sandbox", "read-only")),
         codex_home=_optional_str(experiment.get("codex_home")),
         codex_config=[str(value) for value in experiment.get("codex_config", [])],
         max_steps=int(agentic.get("max_steps", DEFAULT_AGENTIC_MAX_STEPS)),
@@ -201,6 +203,8 @@ def build_experiment_command(spec: ExperimentSpec, *, python_exe: str) -> list[s
         spec.device,
         "--codex-bin",
         spec.codex_bin,
+        "--codex-sandbox",
+        spec.codex_sandbox,
     ]
     if spec.problem_ids_arg:
         command.extend(["--problem-ids", spec.problem_ids_arg])
@@ -264,6 +268,8 @@ def render_experiment_summary(spec: ExperimentSpec) -> str:
     ]
     if spec.machine_label:
         lines.append(f"machine: {spec.machine_label}")
+    if spec.provider == "codex":
+        lines.append(f"codex sandbox: {spec.codex_sandbox}")
     if spec.comparison_goal:
         lines.append(f"comparison_goal: {spec.comparison_goal}")
     if spec.kernelbench_parity_scope:

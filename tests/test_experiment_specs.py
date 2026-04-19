@@ -18,6 +18,8 @@ def test_available_experiment_specs_lists_checked_in_specs() -> None:
     assert "level1_matched_agentic_gpt54.toml" in names
     assert "level1_pilot_oneshot_gpt54.toml" in names
     assert "level1_pilot_agentic_gpt54.toml" in names
+    assert "level2_spread_oneshot_gpt54.toml" in names
+    assert "level3_spread_oneshot_gpt54.toml" in names
 
 
 def test_resolve_experiment_spec_path_supports_basename_lookup() -> None:
@@ -51,12 +53,31 @@ def test_load_pilot_spec_reads_fixed_problem_subset() -> None:
     assert spec.dev_eval_seed == 7
 
 
+def test_load_spread_specs_read_representative_subsets() -> None:
+    level2 = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level2_spread_oneshot_gpt54.toml")
+    level3 = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level3_spread_oneshot_gpt54.toml")
+
+    assert level2.level == 2
+    assert level2.problem_ids == [1, 2, 8, 18, 23, 28, 33, 43]
+    assert level2.track == "oneshot"
+    assert level2.locked is True
+    assert level2.canonical is False
+
+    assert level3.level == 3
+    assert level3.problem_ids == [1, 5, 9, 15, 20, 28, 35, 43, 50]
+    assert level3.track == "oneshot"
+    assert level3.locked is True
+    assert level3.canonical is False
+
+
 def test_build_experiment_command_includes_agentic_flags() -> None:
     spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_matched_agentic_gpt54.toml")
     command = build_experiment_command(spec, python_exe="python")
     assert command[:2] == ["python", "scripts/run_level_paired.py"]
     assert "--track" in command
     assert "agentic" in command
+    assert "--codex-sandbox" in command
+    assert "read-only" in command
     assert "--official-eval-seed" in command
     assert "--max-steps" in command
     assert "--dev-eval-seed" in command
@@ -86,6 +107,7 @@ def test_render_experiment_summary_mentions_notes() -> None:
     summary = render_experiment_summary(spec)
     assert "level1-matched-oneshot-gpt54" in summary
     assert "locked/canonical: True / True" in summary
+    assert "codex sandbox: read-only" in summary
     assert "comparison_goal:" in summary
     assert "required_outputs:" in summary
     assert "notes:" in summary
@@ -126,5 +148,34 @@ profile_metrics = ["gpu__time_duration.sum", "sm__cycles_active.avg"]
         assert "--dev-eval-profile-trials" in command
         assert "2" in command
         assert "--dev-eval-profile-metric" in command
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def test_load_experiment_spec_reads_codex_sandbox_override() -> None:
+    scratch = Path("tests") / ".tmp_experiment_specs"
+    scratch.mkdir(parents=True, exist_ok=True)
+    spec_path = scratch / "codex_sandbox.toml"
+    try:
+        spec_path.write_text(
+            """
+[experiment]
+name = "sandboxed-agentic"
+run_name = "sandboxed-agentic-run"
+model = "gpt-5.4"
+track = "agentic"
+level = 1
+codex_sandbox = "workspace-write"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        spec = load_experiment_spec(spec_path)
+
+        assert spec.codex_sandbox == "workspace-write"
+
+        command = build_experiment_command(spec, python_exe="python")
+        sandbox_index = command.index("--codex-sandbox")
+        assert command[sandbox_index + 1] == "workspace-write"
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
