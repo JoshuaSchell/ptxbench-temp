@@ -123,18 +123,18 @@ uv run python scripts\run_and_check.py --backend ptx --level 1 --problem-id 19 -
 
 ## Locked experiments
 
-Checked-in experiment specs live under [experiments/](./experiments/README.md). Use these to lock the model, track, budgets, seeds, trials, and WSL target before starting a paper-facing rerun.
+Checked-in experiment specs live under [experiments/](./experiments/README.md). Use these to lock the model, track, budgets, seeds, and trials before starting a paper-facing rerun.
 
 Inspect a spec without running it:
 
-```powershell
-uv run python scripts\run_experiment_wsl.py --spec experiments\level1_matched_agentic_gpt54.toml --dry-run
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml --dry-run
 ```
 
 Run a locked experiment:
 
-```powershell
-uv run python scripts\run_experiment_wsl.py --spec experiments\level1_matched_agentic_gpt54.toml
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml
 ```
 
 Current checked-in specs:
@@ -154,10 +154,9 @@ The two `level1_matched_*` files are the current canonical Level 1 experiment co
 - `scripts/eval_from_generations.py`
 - `scripts/benchmark_eval_analysis.py`
 - `scripts/validate_evidence_bundle.py`
-- `scripts/sync_to_wsl.py`
+- `scripts/run_experiment.py`
 - `scripts/run_level_paired.py`
 - `scripts/run_level1_paired.py`
-- `scripts/run_level1_paired_wsl.py`
 
 `scripts/run_level_paired.py` is the preferred generic Linux entrypoint for Levels 1-4. `scripts/run_level1_paired.py` remains as a backward-compatible alias.
 
@@ -205,30 +204,22 @@ uv run python scripts\bootstrap_kernelbench.py --verify-only
 
 PTXBench expects the vendored snapshot at commit `423217d9fda91e0c2d67e4a43bf62f96f6d104f1`. Dataset construction and paper-run metadata collection both refuse to proceed if the vendored task set is missing or at any other commit.
 
-## WSL2 paper-run workflow
+## Native paper-run workflow
 
-For paper-grade runs on this machine, use Ubuntu WSL2 as the primary experiment environment and keep native Windows as a secondary/dev path.
+For paper-grade runs on this machine, use the native Linux environment directly.
 
-1. Sync the repo into the Linux filesystem and include any existing generated runs you want to reevaluate:
+1. Run a locked experiment spec:
 
-```powershell
-uv run python scripts\sync_to_wsl.py --include-run pilot-gpt54
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml
 ```
 
-2. Bootstrap the Linux environment inside the synced repo:
+2. Or run the paired workflow directly for the level you want:
 
-```powershell
-wsl bash -lc "cd ~/ptxbench/PTXBench && bash scripts/setup_wsl_benchmark_env.sh"
-```
-
-The bootstrap script now installs a Linux `node` if needed so WSL can run the local `codex` CLI shim, and `scripts/run_level1_paired_wsl.py` will reuse your Windows `C:\Users\Josh\.codex` auth state by default.
-
-3. Run the paired workflow for the level you want inside WSL2:
-
-```powershell
-uv run python scripts\run_level1_paired_wsl.py --phase pilot --level 3 --run-name pilot-gpt54-l3 --skip-generation
+```bash
+uv run python scripts/run_level_paired.py --phase pilot --level 3 --run-name pilot-gpt54-l3 --skip-generation
 ```
 
 The paired analysis command now writes both JSON and Markdown outputs under `results/analysis/`, including failure breakdowns, correctness rates, and a paper-facing methodology/context section.
 
-For a full paired run in WSL2, use `--level 1`, `--level 2`, `--level 3`, or `--level 4` on the same wrapper. Level 4 is the heaviest tier and will generally be the slowest to bootstrap because it may download large pretrained models before evaluation.
+For a full paired run, use `--level 1`, `--level 2`, `--level 3`, or `--level 4` on the same wrapper. Level 4 is the heaviest tier and will generally be the slowest to bootstrap because it may download large pretrained models before evaluation.

@@ -67,9 +67,6 @@ class ExperimentSpec:
     dev_eval_profile_enabled: bool = DEFAULT_DEV_EVAL_PROFILE_ENABLED
     dev_eval_profile_trials: int = DEFAULT_DEV_EVAL_PROFILE_TRIALS
     dev_eval_profile_metrics: list[str] = field(default_factory=lambda: list(DEFAULT_DEV_EVAL_PROFILE_METRICS))
-    distro: str = "Ubuntu"
-    target: str = "~/ptxbench/PTXBench"
-    include_runs: list[str] = field(default_factory=list)
     locked: bool = False
     canonical: bool = False
     machine_label: str = ""
@@ -109,7 +106,6 @@ def resolve_experiment_spec_path(spec_ref: str, spec_root: Path | None = None) -
 def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
     payload = tomllib.loads(spec_path.read_text(encoding="utf-8"))
     experiment = payload.get("experiment", {})
-    runner = payload.get("runner", {})
     agentic = payload.get("agentic", {})
     lock = payload.get("lock", {})
     claims = payload.get("claims", {})
@@ -163,9 +159,6 @@ def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
         dev_eval_profile_enabled=bool(agentic.get("profile_enabled", DEFAULT_DEV_EVAL_PROFILE_ENABLED)),
         dev_eval_profile_trials=int(agentic.get("profile_trials", DEFAULT_DEV_EVAL_PROFILE_TRIALS)),
         dev_eval_profile_metrics=[str(value) for value in agentic.get("profile_metrics", DEFAULT_DEV_EVAL_PROFILE_METRICS)],
-        distro=str(runner.get("distro", "Ubuntu")),
-        target=str(runner.get("target", "~/ptxbench/PTXBench")),
-        include_runs=[str(value) for value in runner.get("include_runs", [])],
         locked=bool(lock.get("locked", False)),
         canonical=bool(lock.get("canonical", False)),
         machine_label=str(lock.get("machine_label", "")),
@@ -176,14 +169,10 @@ def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
     )
 
 
-def build_wsl_experiment_command(spec: ExperimentSpec, *, python_exe: str) -> list[str]:
+def build_experiment_command(spec: ExperimentSpec, *, python_exe: str) -> list[str]:
     command = [
         python_exe,
-        "scripts/run_level1_paired_wsl.py",
-        "--distro",
-        spec.distro,
-        "--target",
-        spec.target,
+        "scripts/run_level_paired.py",
         "--run-name",
         spec.run_name,
         "--phase",
@@ -223,8 +212,6 @@ def build_wsl_experiment_command(spec: ExperimentSpec, *, python_exe: str) -> li
         command.extend(["--codex-home", spec.codex_home])
     for config_override in spec.codex_config:
         command.extend(["--codex-config", config_override])
-    for include_run in spec.include_runs:
-        command.extend(["--include-run", include_run])
     if spec.parallel_backends:
         command.append("--parallel-backends")
     if spec.track == "agentic":
@@ -274,7 +261,6 @@ def render_experiment_summary(spec: ExperimentSpec) -> str:
         f"official_eval_seed: {spec.official_eval_seed}",
         f"generation timeout_seconds: {spec.timeout_seconds}",
         f"problem_ids: {spec.problem_ids_arg or 'default for phase'}",
-        f"runner: distro={spec.distro}, target={spec.target}",
     ]
     if spec.machine_label:
         lines.append(f"machine: {spec.machine_label}")

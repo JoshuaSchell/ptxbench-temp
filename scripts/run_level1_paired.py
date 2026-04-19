@@ -510,7 +510,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if platform.system() != "Linux":
-        raise RuntimeError("scripts/run_level1_paired.py is intended to run inside the Linux environment (WSL2).")
+        raise RuntimeError("scripts/run_level1_paired.py is intended to run on Linux.")
     if not args.skip_generation and not args.model:
         raise ValueError("--model is required unless --skip-generation is used")
 

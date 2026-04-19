@@ -28,14 +28,10 @@ dev_eval_seed = 7
 dev_eval_correct_trials = 2
 dev_eval_perf_trials = 5
 
-[runner]
-distro = "Ubuntu"
-target = "~/ptxbench/PTXBench"
-
 [lock]
 locked = true
 canonical = true
-machine_label = "WSL2 Ubuntu on local RTX 4090"
+machine_label = "Native Ubuntu on local RTX 4090"
 
 [claims]
 comparison_goal = "Same-machine agentic PTX vs CUDA comparison under a fixed repair budget."

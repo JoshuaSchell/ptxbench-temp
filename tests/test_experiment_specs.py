@@ -4,7 +4,7 @@ import shutil
 from ptxbench.experiment_specs import (
     EXPERIMENT_SPECS_DIR,
     available_experiment_specs,
-    build_wsl_experiment_command,
+    build_experiment_command,
     load_experiment_spec,
     render_experiment_summary,
     resolve_experiment_spec_path,
@@ -31,7 +31,7 @@ def test_load_experiment_spec_reads_agentic_budget() -> None:
     assert spec.level == 1
     assert spec.locked is True
     assert spec.canonical is True
-    assert spec.machine_label == "WSL2 Ubuntu on local RTX 4090"
+    assert spec.machine_label == "Native Ubuntu on local RTX 4090"
     assert spec.official_eval_seed == 42
     assert spec.max_steps == 5
     assert spec.max_tool_calls == 4
@@ -51,10 +51,10 @@ def test_load_pilot_spec_reads_fixed_problem_subset() -> None:
     assert spec.dev_eval_seed == 7
 
 
-def test_build_wsl_experiment_command_includes_agentic_flags() -> None:
+def test_build_experiment_command_includes_agentic_flags() -> None:
     spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_matched_agentic_gpt54.toml")
-    command = build_wsl_experiment_command(spec, python_exe="python")
-    assert command[:2] == ["python", "scripts/run_level1_paired_wsl.py"]
+    command = build_experiment_command(spec, python_exe="python")
+    assert command[:2] == ["python", "scripts/run_level_paired.py"]
     assert "--track" in command
     assert "agentic" in command
     assert "--official-eval-seed" in command
@@ -63,9 +63,9 @@ def test_build_wsl_experiment_command_includes_agentic_flags() -> None:
     assert "--dev-eval-correct-trials" in command
 
 
-def test_build_wsl_experiment_command_omits_agentic_flags_for_oneshot() -> None:
+def test_build_experiment_command_omits_agentic_flags_for_oneshot() -> None:
     spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_matched_oneshot_gpt54.toml")
-    command = build_wsl_experiment_command(spec, python_exe="python")
+    command = build_experiment_command(spec, python_exe="python")
     assert "--track" in command
     assert "oneshot" in command
     assert "--official-eval-seed" in command
@@ -74,9 +74,9 @@ def test_build_wsl_experiment_command_omits_agentic_flags_for_oneshot() -> None:
     assert "--dev-eval-correct-trials" not in command
 
 
-def test_build_wsl_experiment_command_includes_pilot_problem_ids() -> None:
+def test_build_experiment_command_includes_pilot_problem_ids() -> None:
     spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_pilot_oneshot_gpt54.toml")
-    command = build_wsl_experiment_command(spec, python_exe="python")
+    command = build_experiment_command(spec, python_exe="python")
     assert "--problem-ids" in command
     assert "1,3,19,23,40" in command
 
@@ -121,7 +121,7 @@ profile_metrics = ["gpu__time_duration.sum", "sm__cycles_active.avg"]
         assert spec.dev_eval_profile_trials == 2
         assert spec.dev_eval_profile_metrics == ["gpu__time_duration.sum", "sm__cycles_active.avg"]
 
-        command = build_wsl_experiment_command(spec, python_exe="python")
+        command = build_experiment_command(spec, python_exe="python")
         assert "--dev-eval-profile" in command
         assert "--dev-eval-profile-trials" in command
         assert "2" in command

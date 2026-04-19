@@ -21,19 +21,17 @@ Current vendored task counts:
 
 ## Quick start
 
-```powershell
+```bash
 uv sync --extra dev
 uv add torch --index pytorch=https://download.pytorch.org/whl/cu128
-uv run python scripts\bootstrap_kernelbench.py
+uv run python scripts/bootstrap_kernelbench.py
 uv run pytest -q
-uv run python scripts\run_and_check.py --backend ptx --level 1 --problem-id 19 --submission tests\fixtures\submissions\ptx\relu_submission.py --num-correct-trials 1 --num-perf-trials 2
+uv run python scripts/run_and_check.py --backend ptx --level 1 --problem-id 19 --submission tests/fixtures/submissions/ptx/relu_submission.py --num-correct-trials 1 --num-perf-trials 2
 ```
 
 `torch` needs a CUDA wheel from the official PyTorch index for local GPU evaluation. A CPU-only wheel will import, but `torch.cuda.is_available()` will stay false and PTXBench evaluation will not run.
 
-The vendored KernelBench task snapshot is pinned to a single upstream commit. PTXBench will fail closed if `vendor/KernelBench-upstream/KernelBench` is missing or if `vendor/KernelBench-upstream` is checked out at a different commit. Re-run `uv run python scripts\bootstrap_kernelbench.py` to clone or reset the pinned snapshot.
-
-For the matched CUDA track on Windows, install the Visual Studio `Desktop development with C++` workload, including the MSVC v143 build tools and a Windows SDK. PTXBench attempts to bootstrap the MSVC environment automatically through `VsDevCmd.bat`; if your install lives in a non-standard location, set `PTXBENCH_VSDEVCMD` to that batch file and `PTXBENCH_MSVC_ROOT` to the corresponding `VC\Tools\MSVC\<version>` directory. PTX-only submissions do not require the MSVC host compiler, but `torch.utils.cpp_extension.load_inline` does.
+The vendored KernelBench task snapshot is pinned to a single upstream commit. PTXBench will fail closed if `vendor/KernelBench-upstream/KernelBench` is missing or if `vendor/KernelBench-upstream` is checked out at a different commit. Re-run `uv run python scripts/bootstrap_kernelbench.py` to clone or reset the pinned snapshot.
 
 Level 4 also pulls in Hugging Face transformer models from the vendored KernelBench tasks. That means Level 4 runs need:
 
@@ -50,8 +48,8 @@ Level 4 also pulls in Hugging Face transformer models from the vendored KernelBe
 
 Example:
 
-```powershell
-uv run python scripts\generate_samples.py --provider codex --model gpt-5.4 --backend ptx --level 1 --run-name codex-ptx
+```bash
+uv run python scripts/generate_samples.py --provider codex --model gpt-5.4 --backend ptx --level 1 --run-name codex-ptx
 ```
 
 When using the local Codex path, PTXBench invokes `codex exec` non-interactively and captures the last assistant message as the generated submission.
@@ -65,8 +63,8 @@ PTXBench supports two generation tracks:
 
 Example agentic generation:
 
-```powershell
-uv run python scripts\generate_samples.py --provider codex --model gpt-5.4 --track agentic --backend ptx --level 1 --run-name codex-ptx-agentic
+```bash
+uv run python scripts/generate_samples.py --provider codex --model gpt-5.4 --track agentic --backend ptx --level 1 --run-name codex-ptx-agentic
 ```
 
 The default agentic budget is:
@@ -91,30 +89,30 @@ Requirements:
 
 Example agentic run with profiler feedback enabled:
 
-```powershell
-uv run python scripts\generate_samples.py --provider codex --model gpt-5.4 --track agentic --backend ptx --level 1 --run-name codex-ptx-agentic --dev-eval-profile --dev-eval-profile-metric gpu__time_duration.sum --dev-eval-profile-metric sm__cycles_active.avg
+```bash
+uv run python scripts/generate_samples.py --provider codex --model gpt-5.4 --track agentic --backend ptx --level 1 --run-name codex-ptx-agentic --dev-eval-profile --dev-eval-profile-metric gpu__time_duration.sum --dev-eval-profile-metric sm__cycles_active.avg
 ```
 
 You can also profile a single checked-in submission:
 
-```powershell
-uv run python scripts\run_and_check.py --backend ptx --level 1 --problem-id 19 --submission tests\fixtures\submissions\ptx\relu_submission.py --profile --profile-metric gpu__time_duration.sum
+```bash
+uv run python scripts/run_and_check.py --backend ptx --level 1 --problem-id 19 --submission tests/fixtures/submissions/ptx/relu_submission.py --profile --profile-metric gpu__time_duration.sum
 ```
 
 ## Locked experiments
 
-Checked-in experiment specs live under [experiments/](./experiments/README.md). Use these to lock the model, track, budgets, seeds, trials, and WSL target before starting a paper-facing rerun.
+Checked-in experiment specs live under [experiments/](./experiments/README.md). Use these to lock the model, track, budgets, seeds, and trials before starting a paper-facing rerun.
 
 Inspect a spec without running it:
 
-```powershell
-uv run python scripts\run_experiment_wsl.py --spec experiments\level1_matched_agentic_gpt54.toml --dry-run
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml --dry-run
 ```
 
 Run a locked experiment:
 
-```powershell
-uv run python scripts\run_experiment_wsl.py --spec experiments\level1_matched_agentic_gpt54.toml
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml
 ```
 
 Current checked-in specs:
@@ -134,10 +132,9 @@ The two `level1_matched_*` files are the current canonical Level 1 experiment co
 - `scripts/eval_from_generations.py`
 - `scripts/benchmark_eval_analysis.py`
 - `scripts/validate_evidence_bundle.py`
-- `scripts/sync_to_wsl.py`
+- `scripts/run_experiment.py`
 - `scripts/run_level_paired.py`
 - `scripts/run_level1_paired.py`
-- `scripts/run_level1_paired_wsl.py`
 
 `scripts/run_level_paired.py` is the preferred generic Linux entrypoint for Levels 1-4. `scripts/run_level1_paired.py` remains as a backward-compatible alias.
 
@@ -145,8 +142,8 @@ The two `level1_matched_*` files are the current canonical Level 1 experiment co
 
 By default, batch evaluation runs each submission in its own subprocess and enforces a wall-clock timeout per problem:
 
-```powershell
-uv run python scripts\eval_from_generations.py --run-name codex-ptx --backend ptx --level 1 --per-problem-timeout-seconds 300
+```bash
+uv run python scripts/eval_from_generations.py --run-name codex-ptx --backend ptx --level 1 --per-problem-timeout-seconds 300
 ```
 
 Useful flags:
@@ -163,8 +160,8 @@ For a claim-safe KernelBench-style paper bundle, the expected gate is now:
 2. Produce paired analysis JSON plus Markdown.
 3. Validate the artifact bundle before making claims:
 
-```powershell
-uv run python scripts\validate_evidence_bundle.py --run-name pilot-gpt54 --level 1 --track oneshot
+```bash
+uv run python scripts/validate_evidence_bundle.py --run-name pilot-gpt54 --level 1 --track oneshot
 ```
 
 The validator checks the paper run manifest, backend run manifests, per-problem result JSON files, timing summaries, and paired analysis outputs. It also verifies the standardized evidence fields carried in each result record, including submission hash, failure category, evaluation seeds/trials, hardware/software provenance, and the eager-vs-compile baseline aliases.
@@ -173,42 +170,34 @@ The validator checks the paper run manifest, backend run manifests, per-problem 
 
 Bootstrap the pinned upstream task set into `vendor/KernelBench-upstream`:
 
-```powershell
-uv run python scripts\bootstrap_kernelbench.py
+```bash
+uv run python scripts/bootstrap_kernelbench.py
 ```
 
 Verify an existing vendored checkout without fetching:
 
-```powershell
-uv run python scripts\bootstrap_kernelbench.py --verify-only
+```bash
+uv run python scripts/bootstrap_kernelbench.py --verify-only
 ```
 
 PTXBench expects the vendored snapshot at commit `423217d9fda91e0c2d67e4a43bf62f96f6d104f1`. Dataset construction and paper-run metadata collection both refuse to proceed if the vendored task set is missing or at any other commit.
 
-## WSL2 paper-run workflow
+## Native paper-run workflow
 
-For paper-grade runs on this machine, use Ubuntu WSL2 as the primary experiment environment and keep native Windows as a secondary/dev path.
+For paper-grade runs on this machine, use the native Linux environment directly.
 
-1. Sync the repo into the Linux filesystem and include any existing generated runs you want to reevaluate:
+1. Run a locked experiment spec:
 
-```powershell
-uv run python scripts\sync_to_wsl.py --include-run pilot-gpt54
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml
 ```
 
-2. Bootstrap the Linux environment inside the synced repo:
+2. Or run the paired workflow directly for the level you want:
 
-```powershell
-wsl bash -lc "cd ~/ptxbench/PTXBench && bash scripts/setup_wsl_benchmark_env.sh"
-```
-
-The bootstrap script now installs a Linux `node` if needed so WSL can run the local `codex` CLI shim, and `scripts/run_level1_paired_wsl.py` will reuse your Windows `C:\Users\Josh\.codex` auth state by default.
-
-3. Run the paired workflow for the level you want inside WSL2:
-
-```powershell
-uv run python scripts\run_level1_paired_wsl.py --phase pilot --level 3 --run-name pilot-gpt54-l3 --skip-generation
+```bash
+uv run python scripts/run_level_paired.py --phase pilot --level 3 --run-name pilot-gpt54-l3 --skip-generation
 ```
 
 The paired analysis command now writes both JSON and Markdown outputs under `results/analysis/`, including failure breakdowns, correctness rates, and a paper-facing methodology/context section.
 
-For a full paired run in WSL2, use `--level 1`, `--level 2`, `--level 3`, or `--level 4` on the same wrapper. Level 4 is the heaviest tier and will generally be the slowest to bootstrap because it may download large pretrained models before evaluation.
+For a full paired run, use `--level 1`, `--level 2`, `--level 3`, or `--level 4` on the same wrapper. Level 4 is the heaviest tier and will generally be the slowest to bootstrap because it may download large pretrained models before evaluation.

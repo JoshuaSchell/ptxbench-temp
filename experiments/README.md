@@ -23,14 +23,14 @@ These pilot specs are locked but not canonical. They exist to validate the full 
 
 ## How to inspect a spec without running it
 
-```powershell
-uv run python scripts\run_experiment_wsl.py --spec experiments\level1_matched_agentic_gpt54.toml --dry-run
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml --dry-run
 ```
 
 ## How to run a locked spec
 
-```powershell
-uv run python scripts\run_experiment_wsl.py --spec experiments\level1_matched_agentic_gpt54.toml
+```bash
+uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml
 ```
 
 ## Rules

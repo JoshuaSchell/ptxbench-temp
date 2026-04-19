@@ -255,8 +255,6 @@ def detect_runtime_environment() -> dict[str, Any]:
         "platform_version": platform.version(),
         "platform_machine": platform.machine(),
         "python_version": platform.python_version(),
-        "is_wsl": "microsoft" in platform.release().lower() or "WSL_DISTRO_NAME" in os.environ,
-        "wsl_distro": os.environ.get("WSL_DISTRO_NAME"),
         "cwd": str(Path.cwd()),
         "vendor_snapshot_commit": snapshot.commit,
         "kernelbench_commit": snapshot.commit,
