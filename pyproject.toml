@@ -27,6 +27,7 @@ gpu = [
   "transformers>=4.51",
 ]
 dev = [
+  "pandas>=2.2",
   "pytest>=8.3",
 ]
 
