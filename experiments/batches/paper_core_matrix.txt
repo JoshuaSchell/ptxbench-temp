@@ -1,0 +1,9 @@
+# Core paper-facing one-shot model matrix.
+level1_matched_oneshot_gpt54
+level1_matched_oneshot_gpt55_medium
+level1_matched_oneshot_claude_sonnet46
+level1_matched_oneshot_claude_opus47
+level2_spread_oneshot_gpt54
+level2_spread_oneshot_gpt55_medium
+level2_spread_oneshot_claude_sonnet46
+level2_spread_oneshot_claude_opus47

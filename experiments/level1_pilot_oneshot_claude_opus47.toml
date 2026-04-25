@@ -1,0 +1,48 @@
+[experiment]
+name = "level1-pilot-oneshot-claude-opus47"
+description = "Level 1 one-shot PTX vs CUDA pilot for Claude Opus 4.7 on the fixed pilot subset."
+run_name = "level1-pilot-oneshot-claude-opus47"
+spec_version = "v1"
+phase = "pilot"
+provider = "claude-code"
+model = "claude-opus-4-7"
+model_family = "claude-opus"
+paper_model_label = "claude_opus47"
+reasoning_effort = "medium"
+track = "oneshot"
+level = 1
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 900
+problem_ids = [1, 3, 19, 23, 40]
+chunk_size = 5
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+claude_bin = "claude"
+claude_extra_args = ["--bare", "--no-session-persistence"]
+
+[lock]
+locked = true
+canonical = false
+machine_label = "Native Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Level 1 Claude Opus 4.7 pilot to validate model-matrix benchmark plumbing."
+claim_scope = ["Pilot only; not a final paper claim."]
+kernelbench_parity_scope = "Protocol validation only. Do not use this pilot run for final parity or superiority claims."
+
+[evidence]
+required_outputs = [
+  "runs/level1-pilot-oneshot-claude-opus47/paper_run_manifest.json",
+  "results/timing/level1-pilot-oneshot-claude-opus47/ptx/level1/summary.json",
+  "results/timing/level1-pilot-oneshot-claude-opus47/cuda/level1/summary.json",
+  "results/analysis/level1-pilot-oneshot-claude-opus47_level1.json",
+  "results/analysis/level1-pilot-oneshot-claude-opus47_level1.md",
+]
+
+[notes]
+items = ["Uses Claude Code pass-through args: --effort medium --bare --no-session-persistence."]

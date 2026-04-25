@@ -115,6 +115,12 @@ def run_agentic_episode(
     model: str,
     run_name: str,
     level: int,
+    reasoning_effort: str | None = None,
+    model_verbosity: str | None = None,
+    provider_extra_args: list[str] | None = None,
+    model_family: str | None = None,
+    paper_model_label: str | None = None,
+    claim_scope: list[str] | None = None,
     temperature: float,
     max_tokens: int,
     arch: str = DEFAULT_ARCH,
@@ -131,6 +137,8 @@ def run_agentic_episode(
     budget = budget or AgenticEpisodeBudget()
     codex_config = codex_config or []
     claude_extra_args = claude_extra_args or []
+    provider_extra_args = provider_extra_args or []
+    claim_scope = claim_scope or []
     run_dir = default_run_dir(run_name, backend, level)
     output_path = run_dir / f"{problem.problem_id:03d}_{problem.path.stem}.py"
     episode_dir = default_episode_dir(run_name, backend, level, problem)
@@ -276,6 +284,14 @@ def run_agentic_episode(
         "problem_name": problem.name,
         "model": model,
         "provider": provider,
+        "model_family": model_family,
+        "paper_model_label": paper_model_label,
+        "reasoning_effort": reasoning_effort,
+        "model_verbosity": model_verbosity,
+        "provider_extra_args": list(provider_extra_args),
+        "codex_config": list(codex_config),
+        "claude_extra_args": list(claude_extra_args),
+        "claim_scope": list(claim_scope),
         "backend": backend,
         "track": "agentic",
         "arch": arch,
@@ -316,6 +332,18 @@ def run_agentic_episode(
         "episode_id": episode_id,
         "track": "agentic",
         "backend": backend,
+        "model": model,
+        "provider": provider,
+        "model_metadata": {
+            "model_family": model_family,
+            "paper_model_label": paper_model_label,
+            "reasoning_effort": reasoning_effort,
+            "model_verbosity": model_verbosity,
+            "provider_extra_args": list(provider_extra_args),
+            "codex_config": list(codex_config),
+            "claude_extra_args": list(claude_extra_args),
+        },
+        "claim_scope": list(claim_scope),
         "problem_id": problem.problem_id,
         "problem_name": problem.name,
         "task_family_tags": list(problem.task_family_tags),

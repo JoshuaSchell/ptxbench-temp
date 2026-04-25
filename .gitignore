@@ -6,6 +6,10 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+*.egg-info/
+/src/*.egg-info/
+/build/
+/dist/
 
 # Virtual environments
 .venv/
@@ -21,10 +25,13 @@ env/
 /results/*
 !/results/.gitkeep
 !/results/analysis/
+/results/analysis/*
 !/results/analysis/.gitkeep
 !/results/timing/
+/results/timing/*
 !/results/timing/.gitkeep
 !/results/paper/
+/results/paper/*
 !/results/paper/.gitkeep
 
 # Root-level scratch files produced by model/codegen experiments

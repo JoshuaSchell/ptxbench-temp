@@ -1,0 +1,48 @@
+[experiment]
+name = "level2-spread-oneshot-claude-sonnet46"
+description = "Level 2 one-shot PTX vs CUDA spread run for Claude Sonnet 4.6."
+run_name = "level2-spread-oneshot-claude-sonnet46"
+spec_version = "v1"
+phase = "full"
+provider = "claude-code"
+model = "claude-sonnet-4-6"
+model_family = "claude-sonnet"
+paper_model_label = "claude_sonnet46"
+reasoning_effort = "medium"
+track = "oneshot"
+level = 2
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 1800
+problem_ids = [1, 2, 8, 18, 23, 28, 33, 43]
+chunk_size = 4
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+claude_bin = "claude"
+claude_extra_args = ["--bare", "--no-session-persistence"]
+
+[lock]
+locked = true
+canonical = false
+machine_label = "Native Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Level 2 Claude Sonnet 4.6 spread run over the representative subset."
+claim_scope = ["Exploratory Level 2 spread subset only."]
+kernelbench_parity_scope = "Exploratory spread only. Do not use this representative subset as a full Level 2 parity claim."
+
+[evidence]
+required_outputs = [
+  "runs/level2-spread-oneshot-claude-sonnet46/paper_run_manifest.json",
+  "results/timing/level2-spread-oneshot-claude-sonnet46/ptx/level2/summary.json",
+  "results/timing/level2-spread-oneshot-claude-sonnet46/cuda/level2/summary.json",
+  "results/analysis/level2-spread-oneshot-claude-sonnet46_level2.json",
+  "results/analysis/level2-spread-oneshot-claude-sonnet46_level2.md",
+]
+
+[notes]
+items = ["Uses Claude Code pass-through args: --effort medium --bare --no-session-persistence."]

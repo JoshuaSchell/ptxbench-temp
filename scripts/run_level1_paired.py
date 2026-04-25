@@ -54,6 +54,14 @@ def write_paper_run_manifest(
     phase: str,
     provider: str,
     model: str | None,
+    reasoning_effort: str | None,
+    model_verbosity: str | None,
+    provider_extra_args: list[str],
+    model_family: str | None,
+    paper_model_label: str | None,
+    claim_scope: list[str],
+    codex_config: list[str],
+    claude_extra_args: list[str],
     level: int,
     track: str,
     problem_ids: list[int],
@@ -98,6 +106,16 @@ def write_paper_run_manifest(
         "phase": phase,
         "provider": provider,
         "model": model,
+        "model_metadata": {
+            "model_family": model_family,
+            "paper_model_label": paper_model_label,
+            "reasoning_effort": reasoning_effort,
+            "model_verbosity": model_verbosity,
+            "provider_extra_args": list(provider_extra_args),
+            "codex_config": list(codex_config),
+            "claude_extra_args": list(claude_extra_args),
+        },
+        "claim_scope": list(claim_scope),
         "track": track,
         "problem_ids": problem_ids,
         "protocol": protocol,
@@ -118,6 +136,14 @@ def write_backend_run_manifest(
     track: str,
     provider: str,
     model: str,
+    reasoning_effort: str | None,
+    model_verbosity: str | None,
+    provider_extra_args: list[str],
+    model_family: str | None,
+    paper_model_label: str | None,
+    claim_scope: list[str],
+    codex_config: list[str],
+    claude_extra_args: list[str],
     problem_ids: list[int],
     arch: str,
     precision: str,
@@ -163,6 +189,16 @@ def write_backend_run_manifest(
         "level": level,
         "run_name": run_name,
         "model": model,
+        "model_metadata": {
+            "model_family": model_family,
+            "paper_model_label": paper_model_label,
+            "reasoning_effort": reasoning_effort,
+            "model_verbosity": model_verbosity,
+            "provider_extra_args": list(provider_extra_args),
+            "codex_config": list(codex_config),
+            "claude_extra_args": list(claude_extra_args),
+        },
+        "claim_scope": list(claim_scope),
         "temperature": 0.0,
         "max_tokens": 12000,
         "timeout_seconds": timeout_seconds,
@@ -181,6 +217,12 @@ def build_generation_command(
     python_exe: str,
     provider: str,
     model: str,
+    reasoning_effort: str | None,
+    model_verbosity: str | None,
+    provider_extra_args: list[str],
+    model_family: str | None,
+    paper_model_label: str | None,
+    claim_scope: list[str],
     track: str,
     backend: str,
     level: int,
@@ -213,6 +255,10 @@ def build_generation_command(
         provider,
         "--model",
         model,
+        "--reasoning-effort",
+        reasoning_effort or "",
+        "--model-verbosity",
+        model_verbosity or "",
         "--track",
         track,
         "--backend",
@@ -234,6 +280,14 @@ def build_generation_command(
         "--chunk-label",
         chunk_label,
     ]
+    if model_family:
+        command.extend(["--model-family", model_family])
+    if paper_model_label:
+        command.extend(["--paper-model-label", paper_model_label])
+    for scope in claim_scope:
+        command.extend(["--claim-scope", scope])
+    for extra_arg in provider_extra_args:
+        command.extend(["--provider-extra-arg", extra_arg])
     if track == "agentic":
         command.extend(
             [
@@ -286,6 +340,12 @@ def execute_generation_tasks(
     run_name: str,
     provider: str,
     model: str,
+    reasoning_effort: str | None,
+    model_verbosity: str | None,
+    provider_extra_args: list[str],
+    model_family: str | None,
+    paper_model_label: str | None,
+    claim_scope: list[str],
     track: str,
     arch: str,
     timeout_seconds: int,
@@ -329,6 +389,14 @@ def execute_generation_tasks(
             track=track,
             provider=provider,
             model=model,
+            reasoning_effort=reasoning_effort,
+            model_verbosity=model_verbosity,
+            provider_extra_args=provider_extra_args,
+            model_family=model_family,
+            paper_model_label=paper_model_label,
+            claim_scope=claim_scope,
+            codex_config=codex_config,
+            claude_extra_args=claude_extra_args,
             problem_ids=problem_ids_by_backend[backend],
             arch=arch,
             precision=precision,
@@ -384,6 +452,12 @@ def execute_generation_tasks(
             python_exe=python_exe,
             provider=provider,
             model=model,
+            reasoning_effort=reasoning_effort,
+            model_verbosity=model_verbosity,
+            provider_extra_args=provider_extra_args,
+            model_family=model_family,
+            paper_model_label=paper_model_label,
+            claim_scope=claim_scope,
             track=track,
             backend=task.backend,
             level=task.level,
@@ -487,6 +561,12 @@ def main() -> None:
     parser.add_argument("--provider", default="codex", choices=["litellm", "codex", "claude-code"])
     parser.add_argument("--track", default=DEFAULT_TRACK, choices=["oneshot", "agentic"])
     parser.add_argument("--model")
+    parser.add_argument("--reasoning-effort", default="")
+    parser.add_argument("--model-verbosity", default="")
+    parser.add_argument("--provider-extra-arg", action="append", default=[])
+    parser.add_argument("--model-family", default="")
+    parser.add_argument("--paper-model-label", default="")
+    parser.add_argument("--claim-scope", action="append", default=[])
     parser.add_argument("--level", type=int, choices=DEFAULT_LEVELS, default=1)
     parser.add_argument("--problem-ids")
     parser.add_argument("--arch", default=DEFAULT_ARCH)
@@ -552,6 +632,14 @@ def main() -> None:
         phase=args.phase,
         provider=args.provider,
         model=args.model,
+        reasoning_effort=args.reasoning_effort or None,
+        model_verbosity=args.model_verbosity or None,
+        provider_extra_args=args.provider_extra_arg,
+        model_family=args.model_family or None,
+        paper_model_label=args.paper_model_label or None,
+        claim_scope=args.claim_scope,
+        codex_config=args.codex_config,
+        claude_extra_args=args.claude_extra_arg,
         level=args.level,
         track=args.track,
         problem_ids=problem_ids,
@@ -620,6 +708,12 @@ def main() -> None:
                 run_name=args.run_name,
                 provider=args.provider,
                 model=args.model,
+                reasoning_effort=args.reasoning_effort or None,
+                model_verbosity=args.model_verbosity or None,
+                provider_extra_args=args.provider_extra_arg,
+                model_family=args.model_family or None,
+                paper_model_label=args.paper_model_label or None,
+                claim_scope=args.claim_scope,
                 track=args.track,
                 arch=args.arch,
                 timeout_seconds=timeout_seconds,
@@ -663,6 +757,12 @@ def main() -> None:
                     run_name=args.run_name,
                     provider=args.provider,
                     model=args.model,
+                    reasoning_effort=args.reasoning_effort or None,
+                    model_verbosity=args.model_verbosity or None,
+                    provider_extra_args=args.provider_extra_arg,
+                    model_family=args.model_family or None,
+                    paper_model_label=args.paper_model_label or None,
+                    claim_scope=args.claim_scope,
                     track=args.track,
                     arch=args.arch,
                     timeout_seconds=timeout_seconds,

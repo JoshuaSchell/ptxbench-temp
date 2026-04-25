@@ -12,6 +12,8 @@ PTXBench is a PTX-first benchmark scaffold for measuring how well models and age
 - Optional Nsight Compute profiler feedback during agentic dev eval
 - Single-sample, batch-eval, and analysis scripts with paired PTX-vs-CUDA reporting
 
+Generated package metadata such as `src/*.egg-info/`, plus build artifacts under `build/` and `dist/`, is ignored and should not be committed.
+
 Current vendored task counts:
 
 - Level 1: 100 tasks
@@ -51,10 +53,11 @@ Example:
 
 ```bash
 uv run python scripts/generate_samples.py --provider codex --model gpt-5.4 --backend ptx --level 1 --run-name codex-ptx
-uv run python scripts/generate_samples.py --provider claude-code --claude-bin claude --model claude-sonnet-4-5 --backend ptx --level 1 --run-name claude-ptx
+uv run python scripts/generate_samples.py --provider claude-code --claude-bin claude --model claude-sonnet-4-6 --backend ptx --level 1 --run-name claude-ptx
 ```
 
 When using the local Codex path, PTXBench invokes `codex exec` non-interactively and captures the last assistant message as the generated submission.
+GPT-5.5 medium paper specs pass `model_reasoning_effort=medium` through Codex config.
 When using Claude Code, PTXBench invokes `claude --print` non-interactively, passes `--model` when provided, and records stdout/stderr plus a secret-free command shape in generation metadata.
 
 ## Tracks
@@ -118,17 +121,15 @@ Run a locked experiment:
 uv run python scripts/run_experiment.py --spec experiments/level1_matched_agentic_gpt54.toml
 ```
 
-Current checked-in specs:
+The experiment directory now contains a paper model matrix for GPT-5.4, GPT-5.5 medium, Claude Sonnet 4.6, and Claude Opus 4.7. Batch files live under `experiments/batches/`:
 
-- `experiments/level1_matched_oneshot_gpt54.toml`
-- `experiments/level1_matched_agentic_gpt54.toml`
-- `experiments/level1_pilot_oneshot_gpt54.toml`
-- `experiments/level1_pilot_agentic_gpt54.toml`
-- `experiments/level2_pilot_oneshot_gpt54.toml`
-- `experiments/level2_matched_oneshot_gpt54.toml`
-- `experiments/level2_pilot_agentic_gpt54.toml`
+```bash
+uv run python scripts/check_experiment_specs.py
+uv run python scripts/run_experiment_batch.py --batch-file experiments/batches/pilot_matrix.txt --dry-run
+uv run python scripts/run_experiment_batch.py --batch-file experiments/batches/paper_core_matrix.txt --dry-run
+```
 
-The two `level1_matched_*` files are the current canonical Level 1 experiment contracts for this machine. The two `level1_pilot_*` files are locked pilot rehearsals on the fixed pilot subset. Each spec declares whether it is locked and canonical, the claim scope it supports, the official and dev eval seeds, and the required outputs that make up the evidence bundle.
+Each spec declares whether it is locked and canonical, the claim scope it supports, the official and dev eval seeds, model metadata, reasoning effort, and required outputs.
 
 ## Core scripts
 
@@ -160,14 +161,19 @@ Useful flags:
 
 ## Paper-readiness gate
 
-For a claim-safe KernelBench-style paper bundle, the expected gate is now:
+For a claim-safe KernelBench-style paper bundle, the expected run order is now:
 
-1. Run paired generation and official evaluation.
-2. Produce paired analysis JSON plus Markdown.
-3. Produce deterministic paper report artifacts.
-4. Validate the artifact bundle before making claims:
+1. Run hygiene and spec checks.
+2. Run the pilot matrix.
+3. Run the Level 1 matched one-shot matrix.
+4. Run the Level 2 spread matrix.
+5. Optionally run Level 3 spread.
+6. Optionally run agentic pilots.
+
+Then produce paired analysis, deterministic paper report artifacts, and validate the artifact bundle before making claims:
 
 ```bash
+uv run python scripts/check_experiment_specs.py
 uv run python scripts/run_experiment.py --spec experiments/level2_pilot_oneshot_gpt54.toml
 uv run python scripts/benchmark_eval_analysis.py --run-name level2-pilot-oneshot-gpt54 --level 2
 uv run python scripts/make_paper_report.py --run-name level2-pilot-oneshot-gpt54 --levels 2

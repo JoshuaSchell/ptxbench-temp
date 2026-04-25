@@ -31,6 +31,12 @@ def main() -> None:
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--track", default="oneshot", choices=["oneshot", "agentic"])
     parser.add_argument("--model", required=True, help="Model name for the selected provider, for example gpt-5.4")
+    parser.add_argument("--reasoning-effort", default="")
+    parser.add_argument("--model-verbosity", default="")
+    parser.add_argument("--provider-extra-arg", action="append", default=[])
+    parser.add_argument("--model-family", default="")
+    parser.add_argument("--paper-model-label", default="")
+    parser.add_argument("--claim-scope", action="append", default=[])
     parser.add_argument("--problem-ids")
     parser.add_argument("--max-problems", type=int)
     parser.add_argument("--temperature", type=float, default=0.0)
@@ -107,6 +113,16 @@ def main() -> None:
         "level": args.level,
         "run_name": args.run_name,
         "model": args.model,
+        "model_metadata": {
+            "model_family": args.model_family or None,
+            "paper_model_label": args.paper_model_label or None,
+            "reasoning_effort": args.reasoning_effort or None,
+            "model_verbosity": args.model_verbosity or None,
+            "provider_extra_args": list(args.provider_extra_arg),
+            "codex_config": list(args.codex_config),
+            "claude_extra_args": list(args.claude_extra_arg),
+        },
+        "claim_scope": list(args.claim_scope),
         "temperature": args.temperature,
         "max_tokens": args.max_tokens,
         "timeout_seconds": args.timeout_seconds,
@@ -171,7 +187,21 @@ def main() -> None:
                     prompt=prompt,
                     response_text="",
                     extracted_source="",
-                    metadata={"dry_run": True, "problem_id": problem.problem_id, "track": args.track},
+                    metadata={
+                        "dry_run": True,
+                        "problem_id": problem.problem_id,
+                        "track": args.track,
+                        "model": args.model,
+                        "provider": args.provider,
+                        "model_family": args.model_family or None,
+                        "paper_model_label": args.paper_model_label or None,
+                        "reasoning_effort": args.reasoning_effort or None,
+                        "model_verbosity": args.model_verbosity or None,
+                        "provider_extra_args": list(args.provider_extra_arg),
+                        "codex_config": list(args.codex_config),
+                        "claude_extra_args": list(args.claude_extra_arg),
+                        "claim_scope": list(args.claim_scope),
+                    },
                 )
                 clear_generation_failure(output_path)
                 generation_summary["generated"] += 1
@@ -184,6 +214,12 @@ def main() -> None:
                     backend=args.backend,
                     provider=args.provider,
                     model=args.model,
+                    reasoning_effort=args.reasoning_effort or None,
+                    model_verbosity=args.model_verbosity or None,
+                    provider_extra_args=args.provider_extra_arg,
+                    model_family=args.model_family or None,
+                    paper_model_label=args.paper_model_label or None,
+                    claim_scope=args.claim_scope,
                     run_name=args.run_name,
                     level=args.level,
                     temperature=args.temperature,
@@ -238,6 +274,14 @@ def main() -> None:
                     "problem_name": problem.name,
                     "model": args.model,
                     "provider": args.provider,
+                    "model_family": args.model_family or None,
+                    "paper_model_label": args.paper_model_label or None,
+                    "reasoning_effort": args.reasoning_effort or None,
+                    "model_verbosity": args.model_verbosity or None,
+                    "provider_extra_args": list(args.provider_extra_arg),
+                    "codex_config": list(args.codex_config),
+                    "claude_extra_args": list(args.claude_extra_arg),
+                    "claim_scope": list(args.claim_scope),
                     "backend": args.backend,
                     "track": args.track,
                     "arch": args.arch,
@@ -262,6 +306,14 @@ def main() -> None:
                 "problem_name": problem.name,
                 "model": args.model,
                 "provider": args.provider,
+                "model_family": args.model_family or None,
+                "paper_model_label": args.paper_model_label or None,
+                "reasoning_effort": args.reasoning_effort or None,
+                "model_verbosity": args.model_verbosity or None,
+                "provider_extra_args": list(args.provider_extra_arg),
+                "codex_config": list(args.codex_config),
+                "claude_extra_args": list(args.claude_extra_arg),
+                "claim_scope": list(args.claim_scope),
                 "backend": args.backend,
                 "track": args.track,
                 "arch": args.arch,

@@ -43,6 +43,11 @@ class ExperimentSpec:
     model: str
     track: str
     level: int
+    reasoning_effort: str | None = None
+    model_verbosity: str | None = None
+    provider_extra_args: list[str] = field(default_factory=list)
+    model_family: str | None = None
+    paper_model_label: str | None = None
     arch: str = DEFAULT_ARCH
     precision: str = DEFAULT_PRECISION
     num_correct_trials: int = DEFAULT_NUM_CORRECT_TRIALS
@@ -74,6 +79,7 @@ class ExperimentSpec:
     canonical: bool = False
     machine_label: str = ""
     comparison_goal: str = ""
+    claim_scope: list[str] = field(default_factory=list)
     kernelbench_parity_scope: str | None = None
     required_outputs: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -136,6 +142,11 @@ def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
         phase=str(experiment.get("phase", "pilot")),
         provider=str(experiment.get("provider", "codex")),
         model=str(experiment["model"]),
+        reasoning_effort=_optional_str(experiment.get("reasoning_effort")),
+        model_verbosity=_optional_str(experiment.get("model_verbosity")),
+        provider_extra_args=[str(value) for value in experiment.get("provider_extra_args", [])],
+        model_family=_optional_str(experiment.get("model_family")),
+        paper_model_label=_optional_str(experiment.get("paper_model_label")),
         track=track,
         level=level,
         arch=str(experiment.get("arch", DEFAULT_ARCH)),
@@ -169,6 +180,7 @@ def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
         canonical=bool(lock.get("canonical", False)),
         machine_label=str(lock.get("machine_label", "")),
         comparison_goal=str(claims.get("comparison_goal", "")),
+        claim_scope=_string_list(claims.get("claim_scope")),
         kernelbench_parity_scope=_optional_str(claims.get("kernelbench_parity_scope")),
         required_outputs=[str(value) for value in evidence.get("required_outputs", [])],
         notes=[str(value) for value in notes.get("items", [])],
@@ -210,6 +222,18 @@ def build_experiment_command(spec: ExperimentSpec, *, python_exe: str) -> list[s
         "--codex-sandbox",
         spec.codex_sandbox,
     ]
+    if spec.model_family:
+        command.extend(["--model-family", spec.model_family])
+    if spec.paper_model_label:
+        command.extend(["--paper-model-label", spec.paper_model_label])
+    if spec.reasoning_effort:
+        command.extend(["--reasoning-effort", spec.reasoning_effort])
+    if spec.model_verbosity:
+        command.extend(["--model-verbosity", spec.model_verbosity])
+    for scope in spec.claim_scope:
+        command.extend(["--claim-scope", scope])
+    for extra_arg in spec.provider_extra_args:
+        command.extend(["--provider-extra-arg", extra_arg])
     if spec.problem_ids_arg:
         command.extend(["--problem-ids", spec.problem_ids_arg])
     if spec.chunk_size is not None:
@@ -218,11 +242,23 @@ def build_experiment_command(spec: ExperimentSpec, *, python_exe: str) -> list[s
         command.extend(["--max-concurrent-chunks", str(spec.max_concurrent_chunks)])
     if spec.codex_home:
         command.extend(["--codex-home", spec.codex_home])
-    for config_override in spec.codex_config:
+    codex_config = list(spec.codex_config)
+    if spec.provider == "codex":
+        generated_codex_config: list[str] = []
+        if spec.reasoning_effort:
+            generated_codex_config.append(f"model_reasoning_effort={spec.reasoning_effort}")
+        if spec.model_verbosity:
+            generated_codex_config.append(f"model_verbosity={spec.model_verbosity}")
+        codex_config = generated_codex_config + codex_config
+    for config_override in codex_config:
         command.extend(["--codex-config", config_override])
     if spec.provider == "claude-code":
         command.extend(["--claude-bin", spec.claude_bin])
-        for extra_arg in spec.claude_extra_args:
+        claude_extra_args: list[str] = []
+        if spec.reasoning_effort:
+            claude_extra_args.extend(["--effort", spec.reasoning_effort])
+        claude_extra_args.extend(spec.claude_extra_args)
+        for extra_arg in claude_extra_args:
             command.extend(["--claude-extra-arg", extra_arg])
     if spec.parallel_backends:
         command.append("--parallel-backends")
@@ -269,6 +305,8 @@ def render_experiment_summary(spec: ExperimentSpec) -> str:
         f"track: {spec.track}",
         f"phase: {spec.phase}",
         f"provider/model: {spec.provider} / {spec.model}",
+        f"model metadata: family={spec.model_family or ''}, paper_label={spec.paper_model_label or ''}, "
+        f"reasoning_effort={spec.reasoning_effort or ''}, model_verbosity={spec.model_verbosity or ''}",
         f"level: {spec.level}",
         f"arch/precision: {spec.arch} / {spec.precision}",
         f"official eval trials: correctness={spec.num_correct_trials}, perf={spec.num_perf_trials}",
@@ -282,6 +320,9 @@ def render_experiment_summary(spec: ExperimentSpec) -> str:
         lines.append(f"codex sandbox: {spec.codex_sandbox}")
     if spec.comparison_goal:
         lines.append(f"comparison_goal: {spec.comparison_goal}")
+    if spec.claim_scope:
+        lines.append("claim_scope:")
+        lines.extend(f"- {scope}" for scope in spec.claim_scope)
     if spec.kernelbench_parity_scope:
         lines.append(f"kernelbench_parity_scope: {spec.kernelbench_parity_scope}")
     if spec.track == "agentic":
@@ -322,3 +363,11 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(item) for item in value]

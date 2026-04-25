@@ -1,0 +1,5 @@
+# Pilot one-shot model matrix.
+level1_pilot_oneshot_gpt54
+level1_pilot_oneshot_gpt55_medium
+level1_pilot_oneshot_claude_sonnet46
+level1_pilot_oneshot_claude_opus47

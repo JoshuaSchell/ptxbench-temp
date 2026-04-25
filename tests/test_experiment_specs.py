@@ -23,6 +23,18 @@ def test_available_experiment_specs_lists_checked_in_specs() -> None:
     assert "level2_pilot_agentic_gpt54.toml" in names
     assert "level2_spread_oneshot_gpt54.toml" in names
     assert "level3_spread_oneshot_gpt54.toml" in names
+    assert "level1_pilot_oneshot_gpt55_medium.toml" in names
+    assert "level1_matched_oneshot_gpt55_medium.toml" in names
+    assert "level1_pilot_oneshot_claude_sonnet46.toml" in names
+    assert "level1_pilot_oneshot_claude_opus47.toml" in names
+
+
+def test_experiment_run_names_are_unique() -> None:
+    seen: dict[str, Path] = {}
+    for spec_path in available_experiment_specs():
+        spec = load_experiment_spec(spec_path)
+        assert spec.run_name not in seen, f"{spec.run_name} duplicated by {spec_path} and {seen.get(spec.run_name)}"
+        seen[spec.run_name] = spec_path
 
 
 def test_resolve_experiment_spec_path_supports_basename_lookup() -> None:
@@ -122,6 +134,44 @@ def test_build_experiment_command_includes_pilot_problem_ids() -> None:
     assert "1,3,19,23,40" in command
 
 
+def test_gpt55_medium_codex_command_records_reasoning_effort() -> None:
+    spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_pilot_oneshot_gpt55_medium.toml")
+    command = build_experiment_command(spec, python_exe="python")
+
+    assert "--provider" in command
+    assert command[command.index("--provider") + 1] == "codex"
+    assert "--model" in command
+    assert command[command.index("--model") + 1] == "gpt-5.5"
+    assert "--reasoning-effort" in command
+    assert command[command.index("--reasoning-effort") + 1] == "medium"
+    assert "--codex-config" in command
+    assert "model_reasoning_effort=medium" in command
+    assert spec.paper_model_label == "gpt55_medium"
+
+
+def test_claude_command_records_model_and_effort_args() -> None:
+    spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_pilot_oneshot_claude_sonnet46.toml")
+    command = build_experiment_command(spec, python_exe="python")
+
+    assert "--provider" in command
+    assert command[command.index("--provider") + 1] == "claude-code"
+    assert "--model" in command
+    assert command[command.index("--model") + 1] == "claude-sonnet-4-6"
+    assert "--claude-extra-arg" in command
+    assert _flag_values(command, "--claude-extra-arg")[:2] == ["--effort", "medium"]
+    assert "--bare" in _flag_values(command, "--claude-extra-arg")
+    assert "--no-session-persistence" in _flag_values(command, "--claude-extra-arg")
+
+
+def test_opus_command_records_model_and_effort_args() -> None:
+    spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_pilot_oneshot_claude_opus47.toml")
+    command = build_experiment_command(spec, python_exe="python")
+
+    assert command[command.index("--provider") + 1] == "claude-code"
+    assert command[command.index("--model") + 1] == "claude-opus-4-7"
+    assert _flag_values(command, "--claude-extra-arg")[:2] == ["--effort", "medium"]
+
+
 def test_render_experiment_summary_mentions_notes() -> None:
     spec = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level1_matched_oneshot_gpt54.toml")
     summary = render_experiment_summary(spec)
@@ -199,3 +249,7 @@ codex_sandbox = "workspace-write"
         assert command[sandbox_index + 1] == "workspace-write"
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _flag_values(command: list[str], flag: str) -> list[str]:
+    return [command[index + 1] for index, token in enumerate(command[:-1]) if token == flag]

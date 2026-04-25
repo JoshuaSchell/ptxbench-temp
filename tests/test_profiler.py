@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-import pandas as pd
+import pytest
+
+pd = pytest.importorskip("pandas")
+pytest.importorskip("torch")
 
 from ptxbench.profiler import ProfileRequest, profile_callable_with_nsight
 

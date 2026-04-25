@@ -1,0 +1,48 @@
+[experiment]
+name = "level3-spread-oneshot-claude-opus47"
+description = "Level 3 one-shot PTX vs CUDA spread run for Claude Opus 4.7."
+run_name = "level3-spread-oneshot-claude-opus47"
+spec_version = "v1"
+phase = "full"
+provider = "claude-code"
+model = "claude-opus-4-7"
+model_family = "claude-opus"
+paper_model_label = "claude_opus47"
+reasoning_effort = "medium"
+track = "oneshot"
+level = 3
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 1800
+problem_ids = [1, 5, 9, 15, 20, 28, 35, 43, 50]
+chunk_size = 3
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+claude_bin = "claude"
+claude_extra_args = ["--bare", "--no-session-persistence"]
+
+[lock]
+locked = true
+canonical = false
+machine_label = "Native Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Level 3 Claude Opus 4.7 spread run over the representative subset."
+claim_scope = ["Exploratory Level 3 spread subset only."]
+kernelbench_parity_scope = "Exploratory spread only. Do not use this representative subset as a full Level 3 parity claim."
+
+[evidence]
+required_outputs = [
+  "runs/level3-spread-oneshot-claude-opus47/paper_run_manifest.json",
+  "results/timing/level3-spread-oneshot-claude-opus47/ptx/level3/summary.json",
+  "results/timing/level3-spread-oneshot-claude-opus47/cuda/level3/summary.json",
+  "results/analysis/level3-spread-oneshot-claude-opus47_level3.json",
+  "results/analysis/level3-spread-oneshot-claude-opus47_level3.md",
+]
+
+[notes]
+items = ["Uses Claude Code pass-through args: --effort medium --bare --no-session-persistence."]
