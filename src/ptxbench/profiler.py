@@ -139,17 +139,17 @@ def profile_callable_with_nsight(
     @nsight.analyze.kernel(  # type: ignore[union-attr]
         metrics=list(metrics),
         runs=max(1, int(request.num_trials)),
-        configs=[(0,)],
+        output="quiet",
         combine_kernel_metrics=lambda left, right: (0 if left is None else left) + (0 if right is None else right),
     )
-    def profiled(_: Any) -> None:
+    def profiled() -> None:
         with nsight.annotate("ptxbench_profile"):  # type: ignore[union-attr]
             output = func()
             del output
             torch.cuda.synchronize()
 
     try:
-        result = profiled(None)
+        result = profiled()
         dataframe = result.to_dataframe() if result is not None else None
         if dataframe is None or dataframe.empty:
             return ProfileResult(

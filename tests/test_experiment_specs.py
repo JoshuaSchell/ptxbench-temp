@@ -18,6 +18,9 @@ def test_available_experiment_specs_lists_checked_in_specs() -> None:
     assert "level1_matched_agentic_gpt54.toml" in names
     assert "level1_pilot_oneshot_gpt54.toml" in names
     assert "level1_pilot_agentic_gpt54.toml" in names
+    assert "level2_pilot_oneshot_gpt54.toml" in names
+    assert "level2_matched_oneshot_gpt54.toml" in names
+    assert "level2_pilot_agentic_gpt54.toml" in names
     assert "level2_spread_oneshot_gpt54.toml" in names
     assert "level3_spread_oneshot_gpt54.toml" in names
 
@@ -68,6 +71,23 @@ def test_load_spread_specs_read_representative_subsets() -> None:
     assert level3.track == "oneshot"
     assert level3.locked is True
     assert level3.canonical is False
+
+
+def test_load_level2_paper_specs() -> None:
+    pilot = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level2_pilot_oneshot_gpt54.toml")
+    matched = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level2_matched_oneshot_gpt54.toml")
+    agentic = load_experiment_spec(EXPERIMENT_SPECS_DIR / "level2_pilot_agentic_gpt54.toml")
+
+    assert pilot.level == 2
+    assert pilot.problem_ids == list(range(1, 31))
+    assert pilot.phase == "pilot"
+    assert "results/paper/level2-pilot-oneshot-gpt54/main_results.csv" in pilot.required_outputs
+    assert matched.level == 2
+    assert matched.phase == "full"
+    assert matched.problem_ids is None
+    assert matched.canonical is True
+    assert agentic.track == "agentic"
+    assert agentic.problem_ids == list(range(1, 31))
 
 
 def test_build_experiment_command_includes_agentic_flags() -> None:

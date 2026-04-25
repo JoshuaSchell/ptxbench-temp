@@ -335,6 +335,7 @@ def main() -> None:
                 "geomean_speedup_vs_torch_correct_only": ptx_backend_summary.geomean_speedup_vs_torch_correct_only,
                 "geomean_speedup_vs_torch_correct_and_faster_only": ptx_backend_summary.geomean_speedup_vs_torch_correct_and_faster_only,
                 "failure_breakdown": ptx_backend_summary.failure_breakdown,
+                "paper_failure_breakdown": ptx_backend_summary.paper_failure_breakdown,
                 "agentic_budget_summary": (
                     _serialize_agentic_summary(compute_agentic_budget_summary(ptx_rows)) if track == "agentic" else None
                 ),
@@ -351,6 +352,7 @@ def main() -> None:
                 "geomean_speedup_vs_torch_correct_only": cuda_backend_summary.geomean_speedup_vs_torch_correct_only,
                 "geomean_speedup_vs_torch_correct_and_faster_only": cuda_backend_summary.geomean_speedup_vs_torch_correct_and_faster_only,
                 "failure_breakdown": cuda_backend_summary.failure_breakdown,
+                "paper_failure_breakdown": cuda_backend_summary.paper_failure_breakdown,
                 "agentic_budget_summary": (
                     _serialize_agentic_summary(compute_agentic_budget_summary(cuda_rows)) if track == "agentic" else None
                 ),
@@ -407,6 +409,7 @@ def _serialize_backend_summary(summary) -> dict:
         "geomean_speedup_vs_torch_correct_only": summary.geomean_speedup_vs_torch_correct_only,
         "geomean_speedup_vs_torch_correct_and_faster_only": summary.geomean_speedup_vs_torch_correct_and_faster_only,
         "failure_breakdown": summary.failure_breakdown,
+        "paper_failure_breakdown": summary.paper_failure_breakdown,
     }
 
 

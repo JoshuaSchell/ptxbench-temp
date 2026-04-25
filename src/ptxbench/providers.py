@@ -42,6 +42,28 @@ def _resolve_codex_bin(codex_bin: str) -> str:
     return codex_bin
 
 
+def _safe_command_shape(command: list[str]) -> list[str]:
+    """Return argv shape only; prompts and environment variables are never included."""
+    shape: list[str] = []
+    previous_sensitive = False
+    sensitive_tokens = ("key", "token", "secret", "password")
+    for index, arg in enumerate(command):
+        lowered = arg.lower()
+        is_sensitive_flag = arg.startswith("-") and any(token in lowered for token in sensitive_tokens)
+        if index == 0:
+            shape.append(arg)
+        elif previous_sensitive:
+            shape.append("<redacted>")
+        elif "=" in arg and any(token in lowered.split("=", 1)[0] for token in sensitive_tokens):
+            shape.append(arg.split("=", 1)[0] + "=<redacted>")
+        elif arg.startswith("-"):
+            shape.append(arg)
+        else:
+            shape.append("<arg>")
+        previous_sensitive = is_sensitive_flag
+    return shape
+
+
 def generate_with_litellm(
     *,
     prompt: str,
@@ -156,5 +178,62 @@ def generate_with_codex_cli(
             "timeout_seconds": timeout_seconds,
             "stdout": _decode_process_output(process.stdout).strip(),
             "stderr": _decode_process_output(process.stderr).strip(),
+        },
+    )
+
+
+def generate_with_claude_code_cli(
+    *,
+    prompt: str,
+    model: str | None = None,
+    working_dir: Path | None = None,
+    claude_bin: str = "claude",
+    extra_args: list[str] | None = None,
+    timeout_seconds: int | None = None,
+) -> ProviderResponse:
+    extra_args = extra_args or []
+    command = [claude_bin, "--print"]
+    if model:
+        command.extend(["--model", model])
+    command.extend(extra_args)
+
+    try:
+        process = subprocess.run(
+            command,
+            input=prompt,
+            capture_output=True,
+            cwd=str(working_dir) if working_dir is not None else None,
+            check=False,
+            timeout=timeout_seconds,
+            text=True,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise GenerationProviderError(
+            "claude-code CLI timed out"
+            f"\ntimeout_seconds={timeout_seconds}"
+            f"\nstdout={_decode_process_output(exc.stdout).strip()}"
+            f"\nstderr={_decode_process_output(exc.stderr).strip()}"
+        ) from exc
+
+    stdout = _decode_process_output(process.stdout).strip()
+    stderr = _decode_process_output(process.stderr).strip()
+    if process.returncode != 0:
+        raise GenerationProviderError(
+            "claude-code CLI failed"
+            f"\nexit_code={process.returncode}"
+            f"\nstdout={stdout}"
+            f"\nstderr={stderr}"
+        )
+
+    return ProviderResponse(
+        content=stdout,
+        metadata={
+            "provider": "claude-code",
+            "model": model,
+            "claude_bin": claude_bin,
+            "timeout_seconds": timeout_seconds,
+            "stdout": stdout,
+            "stderr": stderr,
+            "command_shape": _safe_command_shape(command),
         },
     )

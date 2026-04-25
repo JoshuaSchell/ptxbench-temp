@@ -72,6 +72,7 @@ def write_paper_run_manifest(
     dev_eval_profile_enabled: bool,
     dev_eval_profile_trials: int,
     dev_eval_profile_metrics: list[str],
+    required_outputs: list[str] | None = None,
 ) -> None:
     protocol = default_paper_protocol(level=level, track=track).to_dict()
     protocol["level"] = level
@@ -102,6 +103,8 @@ def write_paper_run_manifest(
         "protocol": protocol,
         "environment": detect_runtime_environment(),
     }
+    if required_outputs:
+        manifest["required_outputs"] = list(required_outputs)
     manifest_path = REPO_ROOT / "runs" / run_name / "paper_run_manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -199,6 +202,8 @@ def build_generation_command(
     codex_sandbox: str,
     codex_home: str | None,
     codex_config: list[str],
+    claude_bin: str,
+    claude_extra_args: list[str],
     chunk_label: str,
 ) -> list[str]:
     command = [
@@ -263,6 +268,10 @@ def build_generation_command(
             command.extend(["--codex-home", codex_home])
         for config_override in codex_config:
             command.extend(["--codex-config", config_override])
+    if provider == "claude-code":
+        command.extend(["--claude-bin", claude_bin])
+        for extra_arg in claude_extra_args:
+            command.extend(["--claude-extra-arg", extra_arg])
     return command
 
 
@@ -298,6 +307,8 @@ def execute_generation_tasks(
     codex_sandbox: str,
     codex_home: str | None,
     codex_config: list[str],
+    claude_bin: str,
+    claude_extra_args: list[str],
     max_concurrent_chunks: int,
 ) -> None:
     status_lock = threading.Lock()
@@ -394,6 +405,8 @@ def execute_generation_tasks(
             codex_sandbox=codex_sandbox,
             codex_home=codex_home,
             codex_config=codex_config,
+            claude_bin=claude_bin,
+            claude_extra_args=claude_extra_args,
             chunk_label=task.chunk_label,
         )
         try:
@@ -471,7 +484,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the paper-grade PTX-vs-CUDA workflow for a KernelBench level.")
     parser.add_argument("--phase", choices=["smoke", "pilot", "full"], default="pilot")
     parser.add_argument("--run-name", required=True)
-    parser.add_argument("--provider", default="codex", choices=["litellm", "codex"])
+    parser.add_argument("--provider", default="codex", choices=["litellm", "codex", "claude-code"])
     parser.add_argument("--track", default=DEFAULT_TRACK, choices=["oneshot", "agentic"])
     parser.add_argument("--model")
     parser.add_argument("--level", type=int, choices=DEFAULT_LEVELS, default=1)
@@ -503,6 +516,8 @@ def main() -> None:
     )
     parser.add_argument("--codex-home")
     parser.add_argument("--codex-config", action="append", default=[])
+    parser.add_argument("--claude-bin", default="claude")
+    parser.add_argument("--claude-extra-arg", action="append", default=[])
     parser.add_argument("--max-steps", type=int, default=DEFAULT_AGENTIC_MAX_STEPS)
     parser.add_argument("--max-wall-clock-minutes", type=int, default=DEFAULT_AGENTIC_MAX_WALL_CLOCK_MINUTES)
     parser.add_argument("--max-tool-calls", type=int, default=DEFAULT_AGENTIC_MAX_TOOL_CALLS)
@@ -512,6 +527,7 @@ def main() -> None:
     parser.add_argument("--dev-eval-profile", action="store_true")
     parser.add_argument("--dev-eval-profile-trials", type=int, default=1)
     parser.add_argument("--dev-eval-profile-metric", action="append", default=[])
+    parser.add_argument("--required-output", action="append", default=[])
     parser.add_argument("--skip-generation", action="store_true")
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument("--skip-analysis", action="store_true")
@@ -554,6 +570,7 @@ def main() -> None:
         dev_eval_profile_enabled=args.dev_eval_profile,
         dev_eval_profile_trials=args.dev_eval_profile_trials,
         dev_eval_profile_metrics=args.dev_eval_profile_metric,
+        required_outputs=args.required_output,
     )
 
     python_exe = sys.executable
@@ -624,6 +641,8 @@ def main() -> None:
                 codex_sandbox=args.codex_sandbox,
                 codex_home=args.codex_home,
                 codex_config=args.codex_config,
+                claude_bin=args.claude_bin,
+                claude_extra_args=args.claude_extra_arg,
                 max_concurrent_chunks=max_concurrent_chunks,
             )
         else:
@@ -665,6 +684,8 @@ def main() -> None:
                     codex_sandbox=args.codex_sandbox,
                     codex_home=args.codex_home,
                     codex_config=args.codex_config,
+                    claude_bin=args.claude_bin,
+                    claude_extra_args=args.claude_extra_arg,
                     max_concurrent_chunks=max_concurrent_chunks,
                 )
 

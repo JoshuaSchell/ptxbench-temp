@@ -1,0 +1,51 @@
+[experiment]
+name = "level2-matched-oneshot-gpt54"
+description = "Level 2 matched same-machine one-shot PTX vs CUDA full control run."
+run_name = "level2-matched-oneshot-gpt54"
+spec_version = "v1"
+phase = "full"
+provider = "codex"
+model = "gpt-5.4"
+track = "oneshot"
+level = 2
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 1800
+chunk_size = 5
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+codex_bin = "codex"
+
+[lock]
+locked = true
+canonical = true
+machine_label = "Native Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Same-machine full Level 2 one-shot PTX vs CUDA comparison with a KernelBench-style CUDA control."
+kernelbench_parity_scope = "Use the CUDA side of this exact spec as the same-machine KernelBench-style Level 2 one-shot control."
+
+[evidence]
+required_outputs = [
+  "runs/level2-matched-oneshot-gpt54/paper_run_manifest.json",
+  "results/timing/level2-matched-oneshot-gpt54/ptx/level2/summary.json",
+  "results/timing/level2-matched-oneshot-gpt54/cuda/level2/summary.json",
+  "results/analysis/level2-matched-oneshot-gpt54_level2.json",
+  "results/analysis/level2-matched-oneshot-gpt54_level2.md",
+  "results/paper/level2-matched-oneshot-gpt54/main_results.csv",
+  "results/paper/level2-matched-oneshot-gpt54/paired_results.csv",
+  "results/paper/level2-matched-oneshot-gpt54/failure_breakdown.csv",
+  "results/paper/level2-matched-oneshot-gpt54/paper_failure_breakdown.csv",
+  "results/paper/level2-matched-oneshot-gpt54/paper_tables.md",
+  "results/paper/level2-matched-oneshot-gpt54/report_manifest.json",
+]
+
+[notes]
+items = [
+  "Canonical full Level 2 one-shot experiment contract.",
+  "Do not change model, arch, trials, or timeout without creating a new spec file.",
+]

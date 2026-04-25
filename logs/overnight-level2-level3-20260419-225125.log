@@ -1,0 +1,33 @@
+=== LEVEL 2 START 2026-04-19T22:51:25-06:00 ===
+usage: run_level_paired.py [-h] [--phase {smoke,pilot,full}] --run-name
+                           RUN_NAME [--provider {litellm,codex}]
+                           [--track {oneshot,agentic}] [--model MODEL]
+                           [--level {1,2,3,4}] [--problem-ids PROBLEM_IDS]
+                           [--arch ARCH] [--precision {fp32,fp16,bf16}]
+                           [--num-correct-trials NUM_CORRECT_TRIALS]
+                           [--num-perf-trials NUM_PERF_TRIALS]
+                           [--official-eval-seed OFFICIAL_EVAL_SEED]
+                           [--timeout-seconds TIMEOUT_SECONDS]
+                           [--chunk-size CHUNK_SIZE]
+                           [--max-concurrent-chunks MAX_CONCURRENT_CHUNKS]
+                           [--parallel-backends] [--device DEVICE]
+                           [--codex-bin CODEX_BIN]
+                           [--codex-sandbox {read-only,workspace-write,danger-full-access}]
+                           [--codex-home CODEX_HOME]
+                           [--codex-config CODEX_CONFIG]
+                           [--max-steps MAX_STEPS]
+                           [--max-wall-clock-minutes MAX_WALL_CLOCK_MINUTES]
+                           [--max-tool-calls MAX_TOOL_CALLS]
+                           [--dev-eval-seed DEV_EVAL_SEED]
+                           [--dev-eval-correct-trials DEV_EVAL_CORRECT_TRIALS]
+                           [--dev-eval-perf-trials DEV_EVAL_PERF_TRIALS]
+                           [--dev-eval-profile]
+                           [--dev-eval-profile-trials DEV_EVAL_PROFILE_TRIALS]
+                           [--dev-eval-profile-metric DEV_EVAL_PROFILE_METRIC]
+                           [--skip-generation] [--skip-eval] [--skip-analysis]
+                           [--skip-smoke]
+run_level_paired.py: error: argument --problem-ids: expected one argument
+1,3,4,5,6,7,12,14,15,17,18,20,21,23,25,26,28,29,30,32,36,39,44,47,52,54,55,58,59,63,65,68,69,70,72,76,78,80,82,83,85,87,89,9: command not found
+0,91,94,95,96,98,100: command not found
+=== LEVEL 2 END 2026-04-19T22:51:26-06:00 status=127 ===
+=== LEVEL 3 START 2026-04-19T22:51:26-06:00 ===

@@ -2,7 +2,15 @@ from pathlib import Path
 import shutil
 from unittest.mock import patch
 
-from ptxbench.providers import ProviderResponse, generate_with_codex_cli, generate_with_litellm
+import pytest
+
+from ptxbench.providers import (
+    GenerationProviderError,
+    ProviderResponse,
+    generate_with_claude_code_cli,
+    generate_with_codex_cli,
+    generate_with_litellm,
+)
 
 
 class _FakeMessage:
@@ -64,3 +72,42 @@ def test_generate_with_codex_cli_reads_output_file(mock_run) -> None:
         assert invoked[1:3] == ["exec", "-m"]
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+@patch("subprocess.run")
+def test_generate_with_claude_code_cli_extracts_stdout_and_metadata(mock_run) -> None:
+    class _Result:
+        returncode = 0
+        stdout = "```python\nprint('claude')\n```"
+        stderr = "note"
+
+    mock_run.return_value = _Result()
+
+    response = generate_with_claude_code_cli(
+        prompt="hello",
+        model="claude-sonnet-4-5",
+        claude_bin="claude-test",
+        extra_args=["--dangerously-skip-permissions"],
+        timeout_seconds=30,
+    )
+
+    assert response.content.startswith("```python")
+    assert response.metadata["provider"] == "claude-code"
+    assert response.metadata["model"] == "claude-sonnet-4-5"
+    assert response.metadata["claude_bin"] == "claude-test"
+    assert response.metadata["stderr"] == "note"
+    assert response.metadata["command_shape"][:4] == ["claude-test", "--print", "--model", "<arg>"]
+    assert "hello" not in response.metadata["command_shape"]
+
+
+@patch("subprocess.run")
+def test_generate_with_claude_code_cli_nonzero_raises_useful_stderr(mock_run) -> None:
+    class _Result:
+        returncode = 2
+        stdout = ""
+        stderr = "auth failed"
+
+    mock_run.return_value = _Result()
+
+    with pytest.raises(GenerationProviderError, match="auth failed"):
+        generate_with_claude_code_cli(prompt="hello", model="claude-sonnet-4-5")

@@ -38,6 +38,7 @@ def _result_payload(*, backend: str, problem_id: int) -> dict:
         "speedup_vs_eager": 2.0,
         "speedup_vs_compile_default": 1.5,
         "failure_category": "success",
+        "paper_failure_category": "success_fast_compile",
         "num_correct_trials": 5,
         "num_perf_trials": 100,
         "seed": 42,
@@ -51,6 +52,19 @@ def _result_payload(*, backend: str, problem_id: int) -> dict:
         "kernelbench_commit": "kernelbench-commit",
         "metadata": {
             "failure_category": "success",
+            "paper_failure_category": "success_fast_compile",
+            "ptx_resource_summary": {
+                "num_artifacts": 1,
+                "num_functions": 1,
+                "max_registers": 32,
+                "max_spill_stores_bytes": 0,
+                "max_spill_loads_bytes": 0,
+                "max_shared_memory_bytes": 0,
+                "max_local_memory_bytes": 0,
+                "max_constant_memory_bytes": 16,
+                "max_stack_frame_bytes": 0,
+                "any_spills": False,
+            },
         },
     }
 
@@ -129,3 +143,20 @@ def test_validate_evidence_bundle_accepts_tiny_fake_run() -> None:
         assert issues == []
         assert stats["backends"] == 2
         assert stats["problems"] == 2
+
+
+def test_validate_evidence_bundle_requires_paper_report_when_requested() -> None:
+    with _workspace_tempdir() as tmpdir_str:
+        tmp_path = Path(tmpdir_str)
+        validator = _load_validator_script()
+        valid, issues, _stats = validator.validate_evidence_bundle(
+            repo_root=tmp_path,
+            run_name="missing-report",
+            level=1,
+            track="oneshot",
+            backends=["ptx", "cuda"],
+            require_paper_report=True,
+        )
+
+        assert valid is False
+        assert any("missing paper report artifact" in issue for issue in issues)

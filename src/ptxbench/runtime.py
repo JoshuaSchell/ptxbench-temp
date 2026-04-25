@@ -127,11 +127,79 @@ class PTXCompileArtifact:
 _DRIVER_READY = False
 _TOOLCHAIN_VERSION: str | None = None
 _MODULE_CACHE: dict[tuple[int, str, str], tuple[Any, Any]] = {}
+_PTX_ARTIFACT_LOG: list[dict[str, Any]] = []
 
 
 def _max_optional_int(values: list[int | None]) -> int | None:
     present = [value for value in values if value is not None]
     return max(present) if present else None
+
+
+def clear_ptx_artifact_log() -> None:
+    _PTX_ARTIFACT_LOG.clear()
+
+
+def get_ptx_artifact_log() -> list[dict[str, Any]]:
+    deduped: dict[tuple[str, str | None], dict[str, Any]] = {}
+    for record in _PTX_ARTIFACT_LOG:
+        key = (str(record.get("source_hash")), record.get("entry"))
+        deduped[key] = dict(record)
+    return list(deduped.values())
+
+
+def summarize_ptx_artifact_resources(records: list[dict[str, Any]]) -> dict[str, Any]:
+    def _max_field(field_name: str) -> int | None:
+        values: list[int] = []
+        for record in records:
+            report = record.get("assembly_report")
+            if not isinstance(report, dict):
+                continue
+            value = report.get(field_name)
+            if isinstance(value, int) and not isinstance(value, bool):
+                values.append(value)
+        return max(values) if values else None
+
+    num_functions = 0
+    for record in records:
+        report = record.get("assembly_report")
+        if isinstance(report, dict) and isinstance(report.get("functions"), list):
+            num_functions += len(report["functions"])
+    max_spill_stores = _max_field("spill_stores_bytes")
+    max_spill_loads = _max_field("spill_loads_bytes")
+    return {
+        "num_artifacts": len(records),
+        "num_functions": num_functions,
+        "max_registers": _max_field("registers"),
+        "max_spill_stores_bytes": max_spill_stores,
+        "max_spill_loads_bytes": max_spill_loads,
+        "max_shared_memory_bytes": _max_field("shared_memory_bytes"),
+        "max_local_memory_bytes": _max_field("local_memory_bytes"),
+        "max_constant_memory_bytes": _max_field("constant_memory_bytes"),
+        "max_stack_frame_bytes": _max_field("stack_frame_bytes"),
+        "any_spills": bool((max_spill_stores or 0) > 0 or (max_spill_loads or 0) > 0),
+    }
+
+
+def _append_ptx_artifact_record(
+    *,
+    artifact: PTXCompileArtifact,
+    kernel_name: str,
+    entry: str,
+) -> None:
+    _PTX_ARTIFACT_LOG.append(
+        {
+            "source_name": artifact.source_name,
+            "source_hash": artifact.source_hash,
+            "arch": artifact.arch,
+            "cubin_path": str(artifact.cubin_path),
+            "ptx_path": str(artifact.ptx_path),
+            "log_path": str(artifact.log_path),
+            "toolchain": artifact.toolchain,
+            "kernel_name": kernel_name,
+            "entry": entry,
+            "assembly_report": artifact.assembly_report.to_dict(),
+        }
+    )
 
 
 def _new_kernel_assembly_state(name: str, arch: str | None) -> dict[str, Any]:
@@ -526,6 +594,7 @@ class PTXModuleRunner:
         except Exception as exc:
             raise PTXLaunchError(f"Failed to launch {kernel_name}: {exc}") from exc
 
+        _append_ptx_artifact_record(artifact=artifact, kernel_name=kernel_name, entry=spec.entry)
         return artifact
 
 

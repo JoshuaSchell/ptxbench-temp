@@ -25,7 +25,14 @@ from .config import (
 )
 from .dataset import Problem
 from .profiler import ProfileRequest, profile_callable, skipped_profile_result
-from .runtime import PTXAssemblyError, PTXLaunchError, PTXLoadError
+from .runtime import (
+    PTXAssemblyError,
+    PTXLaunchError,
+    PTXLoadError,
+    clear_ptx_artifact_log,
+    get_ptx_artifact_log,
+    summarize_ptx_artifact_resources,
+)
 from .static_checker import validate_submission_static
 from .timing import summarize_timings, time_callable_cuda_events
 from .windows_toolchain import get_cuda_build_environment
@@ -139,6 +146,14 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _finalize_eval_result(result: EvalResult) -> EvalResult:
+    if result.backend == "ptx":
+        artifacts = get_ptx_artifact_log()
+        result.metadata["ptx_artifacts"] = artifacts
+        result.metadata["ptx_resource_summary"] = summarize_ptx_artifact_resources(artifacts)
+    return result
 
 
 def get_torch_dtype(precision: str):
@@ -662,6 +677,8 @@ def evaluate_submission(
         task_family_tags=list(problem.task_family_tags),
     )
     result.metadata["arch"] = arch
+    if backend == "ptx":
+        clear_ptx_artifact_log()
     if profile_request is not None and profile_request.enabled:
         result.metadata["profile"] = skipped_profile_result(
             profile_request,
@@ -677,7 +694,7 @@ def evaluate_submission(
         result.metadata["static_warnings"] = static_check.warnings
         if not static_check.valid:
             result.metadata["static_errors"] = static_check.errors
-            return result
+            return _finalize_eval_result(result)
 
     dtype = get_torch_dtype(precision)
     tolerance = get_tolerance(precision)
@@ -697,7 +714,7 @@ def evaluate_submission(
     except Exception as exc:
         result.metadata["compile_error"] = str(exc)
         result.metadata["compile_traceback"] = traceback.format_exc()
-        return result
+        return _finalize_eval_result(result)
 
     try:
         try:
@@ -711,7 +728,7 @@ def evaluate_submission(
         except Exception as exc:
             result.metadata["init_error"] = str(exc)
             result.metadata["init_traceback"] = traceback.format_exc()
-            return result
+            return _finalize_eval_result(result)
 
         trial_seeds = []
         set_seed(seed)
@@ -741,25 +758,25 @@ def evaluate_submission(
                     result.assembled = False
                     result.loaded = False
                     result.metadata["assembly_error"] = str(exc)
-                    return result
+                    return _finalize_eval_result(result)
                 except PTXLoadError as exc:
                     result.assembled = True
                     result.loaded = False
                     result.metadata["load_error"] = str(exc)
-                    return result
+                    return _finalize_eval_result(result)
                 except PTXLaunchError as exc:
                     result.assembled = True
                     result.loaded = True
                     result.metadata["runtime_error"] = str(exc)
-                    return result
+                    return _finalize_eval_result(result)
                 except torch.OutOfMemoryError as exc:
                     result.metadata["runtime_error"] = str(exc)
                     result.metadata["oom_error"] = True
-                    return result
+                    return _finalize_eval_result(result)
                 except Exception as exc:
                     result.metadata["runtime_error"] = str(exc)
                     result.metadata["runtime_traceback"] = traceback.format_exc()
-                    return result
+                    return _finalize_eval_result(result)
 
                 try:
                     ok, message, details = _compare_outputs(
@@ -771,7 +788,7 @@ def evaluate_submission(
                 except torch.OutOfMemoryError as exc:
                     result.metadata["runtime_error"] = str(exc)
                     result.metadata["oom_error"] = True
-                    return result
+                    return _finalize_eval_result(result)
                 finally:
                     if inputs is not None:
                         del inputs
@@ -786,7 +803,7 @@ def evaluate_submission(
                         result.metadata["correctness_mismatch"] = details
                     result.metadata.setdefault("correctness_errors", []).append(message)
                     result.correctness = False
-                    return result
+                    return _finalize_eval_result(result)
                 passed += 1
 
             result.correctness = passed == num_correct_trials
@@ -796,7 +813,7 @@ def evaluate_submission(
                 result.loaded = True
 
         if not result.correctness:
-            return result
+            return _finalize_eval_result(result)
 
         set_seed(seed)
         perf_inputs = _prepare_inputs(list(get_inputs()), device=device, dtype=dtype)
@@ -819,12 +836,12 @@ def evaluate_submission(
                 result.correctness = False
                 result.metadata["runtime_error"] = str(exc)
                 result.metadata["oom_error"] = True
-                return result
+                return _finalize_eval_result(result)
             except Exception as exc:
                 result.correctness = False
                 result.metadata["runtime_error"] = str(exc)
                 result.metadata["runtime_traceback"] = traceback.format_exc()
-                return result
+                return _finalize_eval_result(result)
 
         if profile_request is not None and profile_request.enabled:
             def profile_target():
@@ -866,7 +883,7 @@ def evaluate_submission(
         result.metadata["reference_timing"] = ref_stats.to_dict()
         result.metadata["reference_eager_timing"] = ref_stats.to_dict()
         result.metadata["candidate_timing"] = candidate_stats.to_dict()
-        return result
+        return _finalize_eval_result(result)
     finally:
         if submission_module is not None:
             unload_submission_module(submission_module)

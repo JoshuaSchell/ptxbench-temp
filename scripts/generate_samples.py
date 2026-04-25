@@ -18,14 +18,14 @@ from ptxbench.generation import (
     write_generation_failure,
 )
 from ptxbench.profiler import normalize_profile_metrics
-from ptxbench.providers import generate_with_codex_cli, generate_with_litellm
+from ptxbench.providers import generate_with_claude_code_cli, generate_with_codex_cli, generate_with_litellm
 from ptxbench.run_metadata import default_paper_protocol, detect_runtime_environment, normalize_problem_ids, sha256_text
 from ptxbench.workflow import chunk_metadata_dir, parse_problem_ids
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate PTXBench submissions with a one-shot prompt.")
-    parser.add_argument("--provider", default="litellm", choices=["litellm", "codex"])
+    parser.add_argument("--provider", default="litellm", choices=["litellm", "codex", "claude-code"])
     parser.add_argument("--backend", required=True, choices=["ptx", "cuda"])
     parser.add_argument("--level", required=True, type=int, choices=DEFAULT_LEVELS)
     parser.add_argument("--run-name", required=True)
@@ -46,6 +46,8 @@ def main() -> None:
     parser.add_argument("--codex-sandbox", default="read-only", choices=["read-only", "workspace-write", "danger-full-access"])
     parser.add_argument("--codex-home", help="Optional CODEX_HOME override when using --provider codex")
     parser.add_argument("--codex-config", action="append", default=[], help="Extra `codex exec -c key=value` overrides")
+    parser.add_argument("--claude-bin", default="claude", help="Claude Code CLI binary when using --provider claude-code")
+    parser.add_argument("--claude-extra-arg", action="append", default=[], help="Extra raw Claude Code CLI arg; repeatable")
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--max-wall-clock-minutes", type=int)
     parser.add_argument("--max-tool-calls", type=int)
@@ -192,6 +194,8 @@ def main() -> None:
                     codex_home=Path(args.codex_home).resolve() if args.codex_home else None,
                     codex_sandbox=args.codex_sandbox,
                     codex_config=args.codex_config,
+                    claude_bin=args.claude_bin,
+                    claude_extra_args=args.claude_extra_arg,
                     budget=agentic_budget,
                 )
                 extracted = artifacts.extracted_source
@@ -206,7 +210,7 @@ def main() -> None:
                         max_tokens=args.max_tokens,
                         timeout_seconds=args.timeout_seconds,
                     )
-                else:
+                elif args.provider == "codex":
                     provider_response = generate_with_codex_cli(
                         prompt=prompt,
                         model=args.model,
@@ -215,6 +219,15 @@ def main() -> None:
                         sandbox=args.codex_sandbox,
                         codex_home=Path(args.codex_home).resolve() if args.codex_home else None,
                         config_overrides=args.codex_config,
+                        timeout_seconds=args.timeout_seconds,
+                    )
+                else:
+                    provider_response = generate_with_claude_code_cli(
+                        prompt=prompt,
+                        model=args.model,
+                        working_dir=REPO_ROOT,
+                        claude_bin=args.claude_bin,
+                        extra_args=args.claude_extra_arg,
                         timeout_seconds=args.timeout_seconds,
                     )
 

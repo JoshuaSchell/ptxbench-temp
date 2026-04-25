@@ -37,7 +37,7 @@ from .generation import (
 )
 from .isolated_eval import evaluate_submission_payload_safely
 from .profiler import ProfileRequest, format_profile_summary, normalize_profile_metrics
-from .providers import ProviderResponse, generate_with_codex_cli, generate_with_litellm
+from .providers import ProviderResponse, generate_with_claude_code_cli, generate_with_codex_cli, generate_with_litellm
 from .run_metadata import sha256_text
 from .runtime import PTXAssemblyError, PTXCompileArtifact, compile_ptx_source
 from .static_checker import validate_submission_static
@@ -123,11 +123,14 @@ def run_agentic_episode(
     codex_home: Path | None = None,
     codex_sandbox: str = "read-only",
     codex_config: list[str] | None = None,
+    claude_bin: str = "claude",
+    claude_extra_args: list[str] | None = None,
     budget: AgenticEpisodeBudget | None = None,
     provider_fn: Callable[..., ProviderResponse] | None = None,
 ) -> AgenticEpisodeArtifacts:
     budget = budget or AgenticEpisodeBudget()
     codex_config = codex_config or []
+    claude_extra_args = claude_extra_args or []
     run_dir = default_run_dir(run_name, backend, level)
     output_path = run_dir / f"{problem.problem_id:03d}_{problem.path.stem}.py"
     episode_dir = default_episode_dir(run_name, backend, level, problem)
@@ -188,6 +191,8 @@ def run_agentic_episode(
                 codex_home=codex_home,
                 codex_sandbox=codex_sandbox,
                 codex_config=codex_config,
+                claude_bin=claude_bin,
+                claude_extra_args=claude_extra_args,
             )
         except Exception as exc:
             if last_source is None:
@@ -629,6 +634,8 @@ def _generate_agentic_step(
     codex_home: Path | None,
     codex_sandbox: str,
     codex_config: list[str],
+    claude_bin: str,
+    claude_extra_args: list[str],
 ) -> ProviderResponse:
     if provider_fn is not None:
         return provider_fn(
@@ -647,16 +654,27 @@ def _generate_agentic_step(
             max_tokens=max_tokens,
             timeout_seconds=timeout_seconds,
         )
-    return generate_with_codex_cli(
-        prompt=prompt,
-        model=model,
-        working_dir=Path(__file__).resolve().parents[2],
-        codex_bin=codex_bin,
-        sandbox=codex_sandbox,
-        codex_home=codex_home,
-        config_overrides=codex_config,
-        timeout_seconds=timeout_seconds,
-    )
+    if provider == "codex":
+        return generate_with_codex_cli(
+            prompt=prompt,
+            model=model,
+            working_dir=Path(__file__).resolve().parents[2],
+            codex_bin=codex_bin,
+            sandbox=codex_sandbox,
+            codex_home=codex_home,
+            config_overrides=codex_config,
+            timeout_seconds=timeout_seconds,
+        )
+    if provider == "claude-code":
+        return generate_with_claude_code_cli(
+            prompt=prompt,
+            model=model,
+            working_dir=Path(__file__).resolve().parents[2],
+            claude_bin=claude_bin,
+            extra_args=claude_extra_args,
+            timeout_seconds=timeout_seconds,
+        )
+    raise ValueError(f"Unsupported provider: {provider}")
 
 
 def _infer_agentic_failure_stage(observation: dict[str, Any]) -> str:

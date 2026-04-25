@@ -1,0 +1,61 @@
+[experiment]
+name = "level2-pilot-agentic-gpt54"
+description = "Level 2 matched same-machine agentic PTX vs CUDA pilot on a deterministic sorted 30-problem subset."
+run_name = "level2-pilot-agentic-gpt54"
+spec_version = "v1"
+phase = "pilot"
+provider = "codex"
+model = "gpt-5.4"
+track = "agentic"
+level = 2
+arch = "sm_89"
+precision = "fp32"
+num_correct_trials = 5
+num_perf_trials = 100
+official_eval_seed = 42
+timeout_seconds = 1800
+problem_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+chunk_size = 5
+max_concurrent_chunks = 1
+parallel_backends = false
+device = "cuda:0"
+codex_bin = "codex"
+
+[agentic]
+max_steps = 5
+max_wall_clock_minutes = 20
+max_tool_calls = 4
+dev_eval_seed = 7
+dev_eval_correct_trials = 2
+dev_eval_perf_trials = 5
+dev_eval_timeout_seconds = 90
+
+[lock]
+locked = true
+canonical = false
+machine_label = "Native Ubuntu on local RTX 4090"
+
+[claims]
+comparison_goal = "Level 2 agentic pilot to validate same-machine PTX vs CUDA iterative generation before larger agentic sweeps."
+kernelbench_parity_scope = "Pilot subset only. The subset is deterministic by sorted problem ID, not semantically stratified."
+
+[evidence]
+required_outputs = [
+  "runs/level2-pilot-agentic-gpt54/paper_run_manifest.json",
+  "results/timing/level2-pilot-agentic-gpt54/ptx/level2/summary.json",
+  "results/timing/level2-pilot-agentic-gpt54/cuda/level2/summary.json",
+  "results/analysis/level2-pilot-agentic-gpt54_level2.json",
+  "results/analysis/level2-pilot-agentic-gpt54_level2.md",
+  "results/paper/level2-pilot-agentic-gpt54/main_results.csv",
+  "results/paper/level2-pilot-agentic-gpt54/paired_results.csv",
+  "results/paper/level2-pilot-agentic-gpt54/failure_breakdown.csv",
+  "results/paper/level2-pilot-agentic-gpt54/paper_failure_breakdown.csv",
+  "results/paper/level2-pilot-agentic-gpt54/paper_tables.md",
+  "results/paper/level2-pilot-agentic-gpt54/report_manifest.json",
+]
+
+[notes]
+items = [
+  "Deterministic pilot subset: sorted Level 2 problem IDs 1 through 30.",
+  "Agentic runner support is provided by scripts/run_level_paired.py and scripts/generate_samples.py.",
+]

@@ -45,14 +45,17 @@ Level 4 also pulls in Hugging Face transformer models from the vendored KernelBe
 
 - `--provider litellm` to call a normal LiteLLM backend
 - `--provider codex` to shell out to a locally installed `codex` CLI
+- `--provider claude-code` to shell out to a locally installed Claude Code CLI in print mode
 
 Example:
 
 ```bash
 uv run python scripts/generate_samples.py --provider codex --model gpt-5.4 --backend ptx --level 1 --run-name codex-ptx
+uv run python scripts/generate_samples.py --provider claude-code --claude-bin claude --model claude-sonnet-4-5 --backend ptx --level 1 --run-name claude-ptx
 ```
 
 When using the local Codex path, PTXBench invokes `codex exec` non-interactively and captures the last assistant message as the generated submission.
+When using Claude Code, PTXBench invokes `claude --print` non-interactively, passes `--model` when provided, and records stdout/stderr plus a secret-free command shape in generation metadata.
 
 ## Tracks
 
@@ -121,6 +124,9 @@ Current checked-in specs:
 - `experiments/level1_matched_agentic_gpt54.toml`
 - `experiments/level1_pilot_oneshot_gpt54.toml`
 - `experiments/level1_pilot_agentic_gpt54.toml`
+- `experiments/level2_pilot_oneshot_gpt54.toml`
+- `experiments/level2_matched_oneshot_gpt54.toml`
+- `experiments/level2_pilot_agentic_gpt54.toml`
 
 The two `level1_matched_*` files are the current canonical Level 1 experiment contracts for this machine. The two `level1_pilot_*` files are locked pilot rehearsals on the fixed pilot subset. Each spec declares whether it is locked and canonical, the claim scope it supports, the official and dev eval seeds, and the required outputs that make up the evidence bundle.
 
@@ -158,13 +164,18 @@ For a claim-safe KernelBench-style paper bundle, the expected gate is now:
 
 1. Run paired generation and official evaluation.
 2. Produce paired analysis JSON plus Markdown.
-3. Validate the artifact bundle before making claims:
+3. Produce deterministic paper report artifacts.
+4. Validate the artifact bundle before making claims:
 
 ```bash
-uv run python scripts/validate_evidence_bundle.py --run-name pilot-gpt54 --level 1 --track oneshot
+uv run python scripts/run_experiment.py --spec experiments/level2_pilot_oneshot_gpt54.toml
+uv run python scripts/benchmark_eval_analysis.py --run-name level2-pilot-oneshot-gpt54 --level 2
+uv run python scripts/make_paper_report.py --run-name level2-pilot-oneshot-gpt54 --levels 2
+uv run python scripts/validate_evidence_bundle.py --run-name level2-pilot-oneshot-gpt54 --level 2 --track oneshot --require-paper-report
 ```
 
 The validator checks the paper run manifest, backend run manifests, per-problem result JSON files, timing summaries, and paired analysis outputs. It also verifies the standardized evidence fields carried in each result record, including submission hash, failure category, evaluation seeds/trials, hardware/software provenance, and the eager-vs-compile baseline aliases.
+For strict paper claims, keep the default torch.compile and PTX-resource requirements enabled. Use `--allow-missing-compile-baseline` or `--allow-missing-ptx-resources` only for legacy or non-paper bundles.
 
 ## Vendored KernelBench snapshot
 

@@ -4,6 +4,7 @@ import importlib.util
 import pytest
 
 from ptxbench.analysis import (
+    classify_paper_failure_category,
     classify_result_stage,
     compute_agentic_budget_summary,
     compute_backend_summary,
@@ -60,6 +61,31 @@ def test_backend_summary_tracks_failure_breakdown() -> None:
     assert summary.failure_breakdown["compile"] == 1
     assert summary.failure_breakdown["assemble"] == 1
     assert summary.failure_breakdown["success"] == 1
+    assert summary.paper_failure_breakdown["import_or_compile_error"] == 1
+
+
+def test_classify_paper_failure_category_major_cases() -> None:
+    cases = [
+        ({"correctness": True, "speedup_vs_eager": 1.2, "metadata": {}}, "success_fast_eager"),
+        ({"correctness": True, "speedup_vs_compile_default": 0.8, "metadata": {}}, "success_slow_compile"),
+        ({"correctness": False, "compiled": False, "metadata": {"missing_submission": True}}, "missing_submission"),
+        ({"correctness": False, "compiled": False, "metadata": {"generation_failure": {"error": "x"}}}, "generation_failure"),
+        ({"correctness": False, "compiled": False, "metadata": {"static_errors": ["fallback"]}}, "static_guardrail"),
+        ({"correctness": False, "compiled": False, "metadata": {"compile_error": "Submission does not define ModelNew"}}, "contract_error"),
+        ({"correctness": False, "compiled": False, "metadata": {"compile_error": "No module named x"}}, "import_or_compile_error"),
+        ({"correctness": False, "compiled": True, "assembled": False, "metadata": {"assembly_error": "ptxas failed"}}, "ptxas_assembly_error"),
+        ({"correctness": False, "compiled": True, "assembled": True, "loaded": False, "metadata": {"load_error": "bad cubin"}}, "cubin_load_error"),
+        ({"correctness": False, "compiled": True, "assembled": True, "loaded": True, "metadata": {"runtime_error": "cuLaunchKernel failed"}}, "kernel_launch_error"),
+        ({"correctness": False, "compiled": True, "metadata": {"runtime_error": "CUDA error: illegal memory access"}}, "illegal_memory_or_cuda_error"),
+        ({"correctness": False, "compiled": True, "metadata": {"oom_error": True}}, "oom"),
+        ({"correctness": False, "compiled": True, "metadata": {"timeout_error": "slow"}}, "timeout"),
+        ({"correctness": False, "compiled": True, "metadata": {"correctness_mismatch": {"shape_mismatch": True}}}, "correctness_shape"),
+        ({"correctness": False, "compiled": True, "metadata": {"correctness_mismatch": {"dtype_mismatch": True}}}, "correctness_dtype"),
+        ({"correctness": False, "compiled": True, "metadata": {"correctness_mismatch": {"kind": "tensor_mismatch"}}}, "correctness_numeric"),
+        ({"correctness": False, "compiled": True, "metadata": {"evaluator_crash": True}}, "evaluator_crash"),
+    ]
+    for row, expected in cases:
+        assert classify_paper_failure_category(row) == expected
 
 
 def test_backend_summary_tracks_compile_default_fastp() -> None:

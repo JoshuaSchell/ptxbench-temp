@@ -6,6 +6,30 @@ import statistics
 
 
 FAILURE_STAGES = ("success", "compile", "assemble", "load", "runtime", "correctness", "timeout", "oom", "evaluator_crash")
+PAPER_FAILURE_CATEGORIES = (
+    "success_fast_eager",
+    "success_slow_eager",
+    "success_fast_compile",
+    "success_slow_compile",
+    "missing_submission",
+    "generation_failure",
+    "static_guardrail",
+    "contract_error",
+    "import_or_compile_error",
+    "ptxas_assembly_error",
+    "cubin_load_error",
+    "kernel_launch_error",
+    "runtime_error",
+    "illegal_memory_or_cuda_error",
+    "oom",
+    "timeout",
+    "correctness_shape",
+    "correctness_dtype",
+    "correctness_numeric",
+    "correctness_other",
+    "evaluator_crash",
+    "unknown_failure",
+)
 
 
 def geometric_mean_speed_ratio_correct_only(
@@ -86,6 +110,7 @@ class BackendRunSummary:
     geomean_speedup_vs_torch_correct_only: float
     geomean_speedup_vs_torch_correct_and_faster_only: float
     failure_breakdown: dict[str, int]
+    paper_failure_breakdown: dict[str, int] = field(default_factory=dict)
     fast_p_vs_compile_default: dict[float, float] = field(default_factory=dict)
 
 
@@ -100,6 +125,8 @@ class AgenticBudgetSummary:
 def classify_result_stage(row: dict) -> str:
     metadata = row.get("metadata", {})
     explicit_category = metadata.get("failure_category")
+    if explicit_category == "evaluator_crash" and "runtime_error" in metadata:
+        return "runtime"
     if isinstance(explicit_category, str) and explicit_category in FAILURE_STAGES:
         return explicit_category
     if row.get("correctness"):
@@ -108,25 +135,99 @@ def classify_result_stage(row: dict) -> str:
         return "timeout"
     if metadata.get("oom_error"):
         return "oom"
-    if metadata.get("evaluator_crash") or metadata.get("evaluator_error"):
-        return "evaluator_crash"
     if not row.get("compiled", False):
         return "compile"
     if row.get("assembled") is False:
         return "assemble"
     if row.get("loaded") is False:
         return "load"
+    if "assembly_error" in metadata:
+        return "assemble"
+    if "load_error" in metadata:
+        return "load"
     if "runtime_error" in metadata:
         return "runtime"
+    if metadata.get("evaluator_crash") or metadata.get("evaluator_error"):
+        return "evaluator_crash"
     if metadata.get("correctness_errors"):
         return "correctness"
-    if any(key in metadata for key in ("assembly_error", "load_error", "runtime_error")):
-        if "assembly_error" in metadata:
-            return "assemble"
-        if "load_error" in metadata:
-            return "load"
-        return "runtime"
     return "correctness"
+
+
+def classify_paper_failure_category(row: dict) -> str:
+    metadata = row.get("metadata", {}) if isinstance(row.get("metadata", {}), dict) else {}
+    explicit = row.get("paper_failure_category") or metadata.get("paper_failure_category")
+    if isinstance(explicit, str) and explicit in PAPER_FAILURE_CATEGORIES:
+        return explicit
+
+    if row.get("correctness"):
+        compile_speedup = _optional_float(row.get("speedup_vs_compile_default"))
+        if compile_speedup is not None:
+            return "success_fast_compile" if compile_speedup > 1.0 else "success_slow_compile"
+        eager_speedup = _optional_float(row.get("speedup_vs_eager", row.get("speedup_vs_torch")))
+        return "success_fast_eager" if (eager_speedup or 0.0) > 1.0 else "success_slow_eager"
+
+    if metadata.get("missing_submission"):
+        return "missing_submission"
+    if metadata.get("generation_failure"):
+        return "generation_failure"
+    if metadata.get("timeout_error") or metadata.get("failure_category") == "timeout":
+        return "timeout"
+    if metadata.get("oom_error") or metadata.get("failure_category") == "oom":
+        return "oom"
+    if metadata.get("evaluator_crash") or metadata.get("evaluator_error") or metadata.get("failure_category") == "evaluator_crash":
+        return "evaluator_crash"
+    if metadata.get("static_errors"):
+        return "static_guardrail"
+
+    compile_error = str(metadata.get("compile_error") or metadata.get("init_error") or "")
+    if compile_error:
+        lowered_compile = compile_error.lower()
+        if any(token in lowered_compile for token in ("modelnew", "ptx_sources", "ptx_kernels", "contract")):
+            return "contract_error"
+        return "import_or_compile_error"
+    if not row.get("compiled", False):
+        return "import_or_compile_error"
+
+    if metadata.get("assembly_error") or row.get("assembled") is False:
+        return "ptxas_assembly_error"
+    if metadata.get("load_error") or row.get("loaded") is False:
+        return "cubin_load_error"
+
+    runtime_error = str(metadata.get("runtime_error") or metadata.get("init_error") or "")
+    lowered_runtime = runtime_error.lower()
+    if runtime_error:
+        if any(token in lowered_runtime for token in ("illegal memory", "cuda error", "cuda_error", "invalid device", "misaligned address")):
+            return "illegal_memory_or_cuda_error"
+        if any(token in lowered_runtime for token in ("launch", "culaunchkernel", "ptxlaunch")):
+            return "kernel_launch_error"
+        return "runtime_error"
+
+    mismatch = metadata.get("correctness_mismatch")
+    if isinstance(mismatch, dict):
+        kind = str(mismatch.get("kind", ""))
+        if mismatch.get("shape_mismatch") or kind in {"sequence_length_mismatch", "dict_key_mismatch", "type_mismatch"}:
+            return "correctness_shape"
+        if mismatch.get("dtype_mismatch"):
+            return "correctness_dtype"
+        if kind in {"tensor_mismatch", "scalar_mismatch"}:
+            return "correctness_numeric"
+        return "correctness_other"
+    if metadata.get("correctness_errors"):
+        return "correctness_other"
+    return "unknown_failure"
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric) or numeric <= 0:
+        return None
+    return numeric
 
 
 def compute_backend_summary(
@@ -141,8 +242,10 @@ def compute_backend_summary(
         for row in rows
     ]
     failure_breakdown = {stage: 0 for stage in FAILURE_STAGES}
+    paper_failure_breakdown = {category: 0 for category in PAPER_FAILURE_CATEGORIES}
     for row in rows:
         failure_breakdown[classify_result_stage(row)] += 1
+        paper_failure_breakdown[classify_paper_failure_category(row)] += 1
     total = len(rows)
     correct_tasks = sum(correct)
     return BackendRunSummary(
@@ -162,6 +265,7 @@ def compute_backend_summary(
             total,
         ),
         failure_breakdown=failure_breakdown,
+        paper_failure_breakdown=paper_failure_breakdown,
     )
 
 

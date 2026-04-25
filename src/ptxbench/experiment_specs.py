@@ -58,6 +58,8 @@ class ExperimentSpec:
     codex_sandbox: str = "read-only"
     codex_home: str | None = None
     codex_config: list[str] = field(default_factory=list)
+    claude_bin: str = "claude"
+    claude_extra_args: list[str] = field(default_factory=list)
     max_steps: int = DEFAULT_AGENTIC_MAX_STEPS
     max_wall_clock_minutes: int = DEFAULT_AGENTIC_MAX_WALL_CLOCK_MINUTES
     max_tool_calls: int = DEFAULT_AGENTIC_MAX_TOOL_CALLS
@@ -151,6 +153,8 @@ def load_experiment_spec(spec_path: Path) -> ExperimentSpec:
         codex_sandbox=str(experiment.get("codex_sandbox", "read-only")),
         codex_home=_optional_str(experiment.get("codex_home")),
         codex_config=[str(value) for value in experiment.get("codex_config", [])],
+        claude_bin=str(experiment.get("claude_bin", "claude")),
+        claude_extra_args=[str(value) for value in experiment.get("claude_extra_args", [])],
         max_steps=int(agentic.get("max_steps", DEFAULT_AGENTIC_MAX_STEPS)),
         max_wall_clock_minutes=int(agentic.get("max_wall_clock_minutes", DEFAULT_AGENTIC_MAX_WALL_CLOCK_MINUTES)),
         max_tool_calls=int(agentic.get("max_tool_calls", DEFAULT_AGENTIC_MAX_TOOL_CALLS)),
@@ -216,8 +220,14 @@ def build_experiment_command(spec: ExperimentSpec, *, python_exe: str) -> list[s
         command.extend(["--codex-home", spec.codex_home])
     for config_override in spec.codex_config:
         command.extend(["--codex-config", config_override])
+    if spec.provider == "claude-code":
+        command.extend(["--claude-bin", spec.claude_bin])
+        for extra_arg in spec.claude_extra_args:
+            command.extend(["--claude-extra-arg", extra_arg])
     if spec.parallel_backends:
         command.append("--parallel-backends")
+    for required_output in spec.required_outputs:
+        command.extend(["--required-output", required_output])
     if spec.track == "agentic":
         command.extend(
             [

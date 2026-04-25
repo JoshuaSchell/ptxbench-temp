@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 
 from ptxbench.config import DEFAULT_LEVELS, REPO_ROOT
+from ptxbench.analysis import classify_paper_failure_category
 from ptxbench.dataset import construct_dataset
 from ptxbench.eval import build_missing_submission_result
 from ptxbench.generation import generation_failure_path
@@ -106,10 +107,12 @@ def stamp_eval_metadata(
     metadata["eval_protocol_signature"] = protocol_signature(protocol)
     metadata["evaluated_submission_hash"] = load_submission_hash(submission_path)
     metadata["failure_category"] = classify_failure_category(payload)
+    metadata["paper_failure_category"] = classify_paper_failure_category({**payload, "metadata": metadata})
     payload["metadata"] = metadata
     payload["track"] = track
     payload["submission_hash"] = metadata["evaluated_submission_hash"]
     payload["failure_category"] = metadata["failure_category"]
+    payload["paper_failure_category"] = metadata["paper_failure_category"]
     payload["num_correct_trials"] = int(protocol["num_correct_trials"])
     payload["num_perf_trials"] = int(protocol["num_perf_trials"])
     payload["seed"] = int(protocol["official_eval_seed"])
