@@ -1,3 +1,4 @@
+cat > .gitignore <<'EOF'
 # Python caches
 __pycache__/
 *.py[cod]
@@ -15,38 +16,48 @@ env/
 # PTXBench generated experiment artifacts
 /runs/
 /.ptxbench_cache/
+/.ptxbench_model_contexts/
 
 # Keep results placeholders, but ignore generated result contents
 /results/*
 !/results/.gitkeep
 !/results/analysis/
-/results/analysis/*
 !/results/analysis/.gitkeep
 !/results/timing/
-/results/timing/*
 !/results/timing/.gitkeep
+!/results/paper/
+!/results/paper/.gitkeep
 
 # Root-level scratch files produced by model/codegen experiments
 /tmp_*
+/tmp*.py
 /final_*
+/final*.py
 /candidate_*
+/candidate*.py
 /answer*.py
 /scratch_*
+/scratch*.py
 /modelnew_*
-/model_new_*
+/modelnew*.py
+/model_new*
 /generated_*
+/generated*.py
 /bench_*
-/submission_*.py
-/ptxbench_answer*.py
+/bench*.py
+/submission_*
+/submission*.py
 /working_submission.py
 /wrapper_submission.py
-/v[0-9]*.py
+/ptxbench_answer*.py
 /ptx_compress_info.txt
+/INTERACTIVE_NOTES.md
 
 # Root-level GPU build artifacts
 /*.ptx
 /*.cubin
 /*.cu
+/*.cuda
 /*.o
 /*.so
 /*.out
@@ -55,3 +66,4 @@ env/
 .DS_Store
 .vscode/
 .idea/
+EOF
