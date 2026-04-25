@@ -1,10 +1,57 @@
-.pytest_cache/
-.venv/
+# Python caches
 __pycache__/
-*.pyc
-runs/
-results/
-!results/.gitkeep
-!results/analysis/.gitkeep
-!results/timing/.gitkeep
-.ptxbench_cache/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PTXBench generated experiment artifacts
+/runs/
+/.ptxbench_cache/
+
+# Keep results placeholders, but ignore generated result contents
+/results/*
+!/results/.gitkeep
+!/results/analysis/
+/results/analysis/*
+!/results/analysis/.gitkeep
+!/results/timing/
+/results/timing/*
+!/results/timing/.gitkeep
+
+# Root-level scratch files produced by model/codegen experiments
+/tmp_*
+/final_*
+/candidate_*
+/answer*.py
+/scratch_*
+/modelnew_*
+/model_new_*
+/generated_*
+/bench_*
+/submission_*.py
+/ptxbench_answer*.py
+/working_submission.py
+/wrapper_submission.py
+/v[0-9]*.py
+/ptx_compress_info.txt
+
+# Root-level GPU build artifacts
+/*.ptx
+/*.cubin
+/*.cu
+/*.o
+/*.so
+/*.out
+
+# Editor and OS noise
+.DS_Store
+.vscode/
+.idea/
