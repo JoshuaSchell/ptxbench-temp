@@ -1,5 +1,8 @@
 from pathlib import Path
+import importlib.util
 import shutil
+import subprocess
+import sys
 
 from ptxbench.dataset import construct_dataset
 from ptxbench.eval import build_missing_submission_result
@@ -11,6 +14,16 @@ from ptxbench.workflow import (
     resolve_problem_ids,
     write_backend_generation_summary,
 )
+
+
+def _load_build_generation_command():
+    module_path = Path("scripts/run_level1_paired.py")
+    spec = importlib.util.spec_from_file_location("run_level1_paired_for_tests", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.build_generation_command
 
 
 def test_generation_failure_artifacts_round_trip() -> None:
@@ -96,5 +109,96 @@ def test_write_backend_generation_summary_collects_failed_problem_ids() -> None:
         assert '"failed": 1' in payload
         assert '"missing": 0' in payload
         assert '"failed_problem_ids": [\n    19\n  ]' in payload
+    finally:
+        shutil.rmtree(run_dir.parent.parent, ignore_errors=True)
+
+
+def test_generate_samples_dry_run_accepts_model_metadata_flags() -> None:
+    run_name = "test-generate-metadata-flags"
+    command = [
+        sys.executable,
+        "scripts/generate_samples.py",
+        "--provider",
+        "litellm",
+        "--backend",
+        "ptx",
+        "--level",
+        "1",
+        "--run-name",
+        run_name,
+        "--model",
+        "dummy-model",
+        "--reasoning-effort",
+        "medium",
+        "--model-verbosity",
+        "low",
+        "--provider-extra-arg",
+        "metadata-only=true",
+        "--model-family",
+        "dummy-family",
+        "--paper-model-label",
+        "dummy_label",
+        "--claim-scope",
+        "pilot",
+        "--problem-ids",
+        "19",
+        "--dry-run",
+    ]
+    run_dir = default_run_dir(run_name, "ptx", 1)
+    try:
+        subprocess.run(command, check=True, cwd=Path.cwd())
+        manifest = (run_dir / "run_manifest.json").read_text(encoding="utf-8")
+        assert '"reasoning_effort": "medium"' in manifest
+        assert '"model_verbosity": "low"' in manifest
+        assert '"provider_extra_args": [\n      "metadata-only=true"\n    ]' in manifest
+        assert '"claim_scope": [\n    "pilot"\n  ]' in manifest
+    finally:
+        shutil.rmtree(run_dir.parent.parent, ignore_errors=True)
+
+
+def test_build_generation_command_is_generate_samples_dry_run_compatible() -> None:
+    run_name = "test-build-generation-command"
+    build_generation_command = _load_build_generation_command()
+    command = build_generation_command(
+        python_exe=sys.executable,
+        provider="litellm",
+        model="dummy-model",
+        reasoning_effort=None,
+        model_verbosity=None,
+        provider_extra_args=[],
+        model_family=None,
+        paper_model_label=None,
+        claim_scope=[],
+        track="oneshot",
+        backend="ptx",
+        level=1,
+        run_name=run_name,
+        problem_ids=[19],
+        arch="sm_89",
+        timeout_seconds=1,
+        official_eval_seed=42,
+        max_steps=5,
+        max_wall_clock_minutes=10,
+        max_tool_calls=4,
+        dev_eval_seed=7,
+        dev_eval_correct_trials=2,
+        dev_eval_perf_trials=5,
+        dev_eval_profile_enabled=False,
+        dev_eval_profile_trials=1,
+        dev_eval_profile_metrics=[],
+        codex_bin="codex",
+        codex_sandbox="read-only",
+        codex_home=None,
+        codex_config=[],
+        claude_bin="claude",
+        claude_extra_args=[],
+        chunk_label="chunk_001",
+    )
+    run_dir = default_run_dir(run_name, "ptx", 1)
+    try:
+        assert "--reasoning-effort" not in command
+        assert "--model-verbosity" not in command
+        subprocess.run([*command, "--dry-run"], check=True, cwd=Path.cwd())
+        assert (run_dir / "_chunks" / "chunk_001" / "run_manifest.json").exists()
     finally:
         shutil.rmtree(run_dir.parent.parent, ignore_errors=True)

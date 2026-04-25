@@ -255,10 +255,6 @@ def build_generation_command(
         provider,
         "--model",
         model,
-        "--reasoning-effort",
-        reasoning_effort or "",
-        "--model-verbosity",
-        model_verbosity or "",
         "--track",
         track,
         "--backend",
@@ -280,6 +276,10 @@ def build_generation_command(
         "--chunk-label",
         chunk_label,
     ]
+    if reasoning_effort:
+        command.extend(["--reasoning-effort", reasoning_effort])
+    if model_verbosity:
+        command.extend(["--model-verbosity", model_verbosity])
     if model_family:
         command.extend(["--model-family", model_family])
     if paper_model_label:

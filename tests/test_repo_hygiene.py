@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import fnmatch
+import py_compile
 import subprocess
 
 
@@ -69,3 +70,40 @@ def test_generated_artifacts_are_not_tracked() -> None:
             offenders.append(raw_path)
 
     assert offenders == []
+
+
+def test_gitignore_has_newlines_and_ignores_root_generated_files() -> None:
+    gitignore_path = Path(".gitignore")
+    lines = gitignore_path.read_text(encoding="utf-8").splitlines()
+
+    assert len(lines) >= 20
+
+    result = subprocess.run(
+        [
+            "git",
+            "check-ignore",
+            "answer.py",
+            "tmp_test.ptx",
+            "candidate_submission.py",
+            "final_kernel.cu",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.splitlines() == [
+        "answer.py",
+        "tmp_test.ptx",
+        "candidate_submission.py",
+        "final_kernel.cu",
+    ]
+
+
+def test_launch_entrypoints_compile() -> None:
+    for path in (
+        Path("scripts/generate_samples.py"),
+        Path("scripts/run_level1_paired.py"),
+        Path("scripts/run_experiment.py"),
+        Path("src/ptxbench/experiment_specs.py"),
+    ):
+        py_compile.compile(str(path), doraise=True)
